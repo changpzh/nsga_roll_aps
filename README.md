@@ -27,3 +27,9 @@
 python -m unittest test.calendar_test -v
 
 v 代表详细打印每一条用例结果
+
+
+# 后续优化点
+
+1. 优化工序排程时找不到设备，找不到工人时的处理逻辑
+2. 优化排程算法为nsga3型
