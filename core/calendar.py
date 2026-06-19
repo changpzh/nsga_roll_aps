@@ -10,7 +10,7 @@ class WorkCalendar:
         self.base_date: date = base_date    # 基准日期：相对工时0点对应的真实日历日期
         self.default_work_start: float = default_work_start
         self.default_work_end: float = default_work_end
-        self.date_work_map: Dict[date, bool] = {}   # 特殊日期映射：key=日期, value=True=上班 False=休息（覆盖周规则）
+        self.special_date_work_map: Dict[date, bool] = {}   # 特殊日期映射：key=日期, value=True=上班 False=休息（覆盖周规则）
         # 每日工时映射：支持不同日期不同上下班时间, # key:date对象, value:(上班小时,下班小时)
         self.date_hour_map: Dict[date, Tuple[float, float]] = {}
         # 周工作日规则：默认双休,# datetime.date.weekday() 规则：0=周一，1=周二，2=周三，3=周四，4=周五，5=周六，6=周日
@@ -35,14 +35,14 @@ class WorkCalendar:
             dt = input_val
 
         # 第二步：优先查特殊日期配置（节假日/调休）
-        if dt in self.date_work_map:
-            return self.date_work_map[dt]
+        if dt in self.special_date_work_map:
+            return self.special_date_work_map[dt]
 
         # 第三步：没有特殊配置，用周规则判断
         return dt.weekday() in self.week_work_set
 
     def add_calendar_item(self, dt: date, is_work: bool, work_start: float = None, work_end: float = None):
-        self.date_work_map[dt] = is_work
+        self.special_date_work_map[dt] = is_work
         s = work_start if work_start is not None else self.default_work_start
         e = work_end if work_end is not None else self.default_work_end
         self.date_hour_map[dt] = (s, e)

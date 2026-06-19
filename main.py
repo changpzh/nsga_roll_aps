@@ -13,32 +13,10 @@ logger = get_logger(__name__)
 
 
 if __name__ == "__main__":
-    np.random.seed(15)
+    np.random.seed(40)
     sm = ProductionStateManager()
     all_job_op_map = build_test_production_data(sm)
     all_job_ids = list(all_job_op_map.keys())
-
-    lock1 = ManualLockAssign(
-        op_global_id=3,
-        fixed_machine_id=2,
-        fixed_worker_id=-1,
-        lock_machine=True,
-        lock_worker=False,
-        operator="调度张三",
-        lock_reason="客户指定机床加工"
-    )
-    sm.add_manual_lock(lock1)
-
-    lock2 = ManualLockAssign(
-        op_global_id=6,
-        fixed_machine_id=-1,
-        fixed_worker_id=1,
-        lock_machine=False,
-        lock_worker=True,
-        operator="调度李四",
-        lock_reason="熟手专人把控品质"
-    )
-    sm.add_manual_lock(lock2)
 
     db_lock_data = sm.export_all_manual_lock()
     print("人工锁定配置可入库数据样例：", db_lock_data[:1])
@@ -68,7 +46,7 @@ if __name__ == "__main__":
         "人员负荷不均衡度",
         "加权在制品等待总时长"
     ]
-    print(f"\n【最优方案六维指标】")
+    print(f"\n【最优方案多维指标】")
     for name, val in zip(target_name, best_fit):
         print(f"  {name}: {val:.2f}")
 

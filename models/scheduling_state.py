@@ -19,23 +19,23 @@ class SchedulingTrackers:
     """
     # ============================== 机器状态 ==============================
     # 每台机器最后一个任务的结束时间 | 核心：判断机器可用时间 + 计算总工期 | 例子：{MachineId(1): 8.5, MachineId(2): 12.0}
-    machine_last_end_time: Dict[MachineId, float] = field(default_factory=dict)
+    machine_last_end_time_dict: Dict[MachineId, float] = field(default_factory=dict)
     # 每台机器上一个任务的工艺类型 | 核心：判断是否需要机器换型 + 计算换型时间 | 例子：{MachineId(1): 1, MachineId(2): 2}
-    machine_previous_technology_type: Dict[MachineId, int] = field(default_factory=dict)
+    machine_previous_technology_type_dict: Dict[MachineId, int] = field(default_factory=dict)
     # 每台机器所有任务的实际加工时间(每个任务时长)列表 | 核心：计算机器总负载 + 负载不平衡度 | 例子：{MachineId(1): [2.0, 3.5], MachineId(2): [4.0]}
-    machine_workloads: Dict[MachineId, List[float]] = field(default_factory=lambda: defaultdict(list))
+    machine_workloads_dict: Dict[MachineId, List[float]] = field(default_factory=lambda: defaultdict(list))
 
     # ============================== 工人状态 ==============================
     # 每个工人所有任务的时间区间列表[(start, end)] | 用途：统计切换次数 + 甘特图可视化 | 例子：{WorkerId(101): [(0.0, 2.0), (2.0, 5.5)]}
-    worker_task_intervals: Dict[WorkerId, List[Tuple[float, float]]] = field(default_factory=lambda: defaultdict(list))
+    worker_task_intervals_dict: Dict[WorkerId, List[Tuple[float, float]]] = field(default_factory=lambda: defaultdict(list))
     # 每个工人任务结束时间的最小堆 | 核心优化：O(log n)判断工人并行约束 | 例子：{WorkerId(101): [2.0, 5.5]} (堆顶是最早结束时间)
-    worker_task_ends_heap: Dict[WorkerId, List[float]] = field(default_factory=lambda: defaultdict(list))
+    worker_task_ends_heap_dict: Dict[WorkerId, List[float]] = field(default_factory=lambda: defaultdict(list))
     # 每个工人所有任务的实际加工时间(每个任务时长)列表 | 核心：计算工人总负载 + 负载不平衡度 | 例子：{WorkerId(101): [2.0, 3.5], WorkerId(102): [4.0]}
-    worker_workloads: Dict[WorkerId, List[float]] = field(default_factory=lambda: defaultdict(list))
+    worker_workloads_dict: Dict[WorkerId, List[float]] = field(default_factory=lambda: defaultdict(list))
 
     # ============================== 工件状态 ==============================
     # 每个工件最后一个工序的结束时间 | 核心：判断工件前序约束 + 计算订单逾期惩罚 | 例子：{JobId(1001): 8.5, JobId(1002): 12.0}
-    job_last_operation_end_time: Dict[JobId, float] = field(default_factory=dict)
+    job_last_operation_end_time_dict: Dict[JobId, float] = field(default_factory=dict)
 
     # ============================== 全局累计指标 ==============================
     # 所有机器的总换型时间 | 直接作为多目标优化的第3个目标 | 例子：2.5 (总共花了2.5小时换型)

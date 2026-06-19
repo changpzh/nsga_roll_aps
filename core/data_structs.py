@@ -1,11 +1,15 @@
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
-from datetime import datetime
+from typing import Dict, List, Optional
+from datetime import datetime, date
+
 
 @dataclass
-class WorkerSkillInfo:
+class WorkerMeta:
     worker_id: int
+    available: bool
+    rest_day: List[date]
     tech_speed_ratio: Dict[int, float]
+
 
 @dataclass
 class ResourceGroup:
@@ -16,10 +20,12 @@ class ResourceGroup:
     worker_max_parallel: int = 2
 
 @dataclass
-class MachineTechParam:
+class MachineMeta:
     machine_id: int
-    max_work_hour: float
-    changeover_time_map: Dict[int, Dict[int, float]]
+    available: bool
+    planned_daily_hour: float
+    changeover_time_map: dict
+
 
 @dataclass
 class JobMeta:
@@ -30,25 +36,7 @@ class JobMeta:
     due_contract_time: float
     base_weight: float
     quantity: int
-
-@dataclass
-class OperationMeta:
-    op_global_id: int
-    op_status: int
-    business_op_id: str
-    business_op_no: str
-    op_name: str
-    op_content: str
-    belong_job_id: int
-    resource_group_id: int
-    resource_group_name: str
-    process_time: float
-    op_index_in_job: int
-    op_quantity: int
-    material_ready_time: float = 0.0
-    op_tech_type: int = 0
-
-
+    delivery_date: Optional[date] = None
 
 @dataclass
 class ManualLockAssign:
@@ -59,12 +47,12 @@ class ManualLockAssign:
     lock_worker: bool = False
     operator: str = ""
     lock_reason: str = ""
-    lock_timestamp: datetime = None
+    lock_time: datetime = None
     last_update_time: datetime = None
 
     def __post_init__(self):
-        if self.lock_timestamp is None:
-            self.lock_timestamp = datetime.now()
+        if self.lock_time is None:
+            self.lock_time = datetime.now()
         if self.last_update_time is None:
             self.last_update_time = datetime.now()
 
@@ -77,7 +65,7 @@ class ManualLockAssign:
             "lock_worker": self.lock_worker,
             "operator": self.operator,
             "lock_reason": self.lock_reason,
-            "lock_timestamp": self.lock_timestamp.isoformat() if self.lock_timestamp else None,
+            "lock_time": self.lock_time.isoformat() if self.lock_time else None,
             "last_update_time": self.last_update_time.isoformat() if self.last_update_time else None
         }
 
@@ -97,3 +85,34 @@ class ManualLockAssign:
         if data.get("last_update_time"):
             lock.last_update_time = datetime.fromisoformat(data["last_update_time"])
         return lock
+
+
+@dataclass
+class OperationMeta:
+    op_global_id: int
+    op_status: int
+    business_op_id: str
+    business_op_no: str
+    op_name: str
+    op_content: str
+    belong_job_id: int
+    resource_group_id: int
+    resource_group_name: str
+    process_time: float
+    op_index_in_job: int
+    op_quantity: int
+    material_ready_time: float = 0.0
+    op_tech_type: int = 0
+    op_lock_info: Optional[ManualLockAssign] = None
+
+    def __post_init__(self):
+        if self.op_lock_info is None:
+            self.op_lock_info = ManualLockAssign(
+                op_global_id=self.op_global_id,
+                fixed_machine_id=-1,
+                fixed_worker_id=-1,
+                lock_machine=False,
+                lock_worker=False,
+                operator="",
+                lock_reason=""
+            )

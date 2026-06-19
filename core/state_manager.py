@@ -12,20 +12,16 @@ class ProductionStateManager:
         self.op_meta_dict: Dict[int, OperationMeta] = {}
         # 所有资源组的配置字典 | 核心：获取某类工序可用的机器和工人列表 | 例子：{1: ResourceGroup(名称车削组, 机器[1,2], 工人[101,102], 工人最大并行1)}
         self.resource_group_dict: Dict[int, ResourceGroup] = {}
-        # 所有机器的工艺参数字典 | 核心：获取不同工艺之间的换型时间 | 例子：{1: MachineTechParam(换型时间{1:{2:1.5}, 2:{1:2.0}}) (车削换铣削1.5小时)}
-        self.machine_tech_dict: Dict[int, MachineTechParam] = {}
-        # 所有工人的技能信息字典 | 核心：获取工人在不同工艺下的加工速度比 | 例子：{101: WorkerSkillInfo(技能系数{1:1.2, 2:0.8}) (车削速度快20%)}
-        self.worker_skill_dict: Dict[int, WorkerSkillInfo] = {}
         # 全局工作日历 | 核心：计算合法的开始/结束时间，排除休息和节假日 | 例子：WorkCalendar(基准日期2026-06-17 08:00, 班次8-12,13-17, 周末休息)
         self.work_calendar: WorkCalendar = None
         # 操作ID到工件ID的快速反向映射 | 核心优化：O(1)查找某道工序属于哪个工件 | 例子：{100101: 1001, 100102: 1001}
         self.operation_id_to_job_id: dict[int, int] = {}
         # 所有工序的当前状态 | 核心：区分已完成/进行中/未开始，仅未开始工序参与排程 | 例子：{100101:0, 100102:1, 100103:2} (键=操作ID, 0=未开始,1=进行中,2=已完成)
         self.operation_status_dict: Dict[int, int] = {}
-        # 所有机器的可用状态 | 核心：排除故障、维修中的机器 | 例子：{1:True, 2:True, 3:False, 4:True, 5:True} (键=机器ID, 3号机器故障不可用)
-        self.machine_available_dict: Dict[int, bool] = {}
-        # 所有工人的可用状态 | 核心：排除请假、出差的工人 | 例子：{101:True, 102:False, 103:True, 104:True, 105:True} (键=工人ID, 102号工人请假不可用)
-        self.worker_available_dict: Dict[int, bool] = {}
+        # 所有机器的信息 | 核心： | 例子：
+        self.machine_meta_dict: Dict[int, MachineMeta] = {}
+        # 所有工人的信息 | 核心：| 例子：
+        self.worker_meta_dict: Dict[int, WorkerMeta] = {}
         # 上一次优化得到的帕累托解集 | 核心：滚动排程时复用历史解，大幅提高优化速度 | 例子：[{"op_sequence": [...], "resource_assign": [...], "fitness": [...]}]
         self.last_pareto_solutions: List[dict] = []
         # 用户手动锁定的操作配置 | 核心：算法不能修改锁定操作的资源分配和时间 | 例子：{100101: ManualLockAssign(lock_machine=True, fixed_machine_id=1)}
@@ -63,11 +59,11 @@ class ProductionStateManager:
         return len(new_jobs) / len(current_jobs)
 
     def get_machine_overload_penalty(self, machine_id: int, total_load: float):
-        tech = self.machine_tech_dict.get(machine_id)
-        if tech is None:
+        machine_meta = self.machine_meta_dict.get(machine_id)
+        if machine_meta is None:
             return 0.0
-        if total_load > tech.max_work_hour:
-            return (total_load - tech.max_work_hour) * OVERLOAD_PENALTY_COEFFICIENT
+        if total_load > machine_meta.planned_daily_hour:
+            return (total_load - machine_meta.planned_daily_hour) * OVERLOAD_PENALTY_COEFFICIENT
         return 0.0
 
     def calc_segment_overdue_penalty(self, finish_time: float, job_meta: JobMeta) -> float:
@@ -88,7 +84,7 @@ class ProductionStateManager:
 
     def add_manual_lock(self, lock_info: ManualLockAssign):
         if not lock_info.lock_machine and not lock_info.lock_worker:
-            raise ValueError("锁定配置至少需要锁定机床或人员其中一项")
+            pass
         lock_info.last_update_time = datetime.now()
         self.manual_lock_dict[lock_info.op_global_id] = lock_info
 
@@ -187,5 +183,23 @@ class ProductionStateManager:
         print(f"当前计划冻结区间：开工时间 < {self.current_system_time + PLAN_FROZEN_HORIZON:.1f} 小时")
 
     def get_schedule_total_horizon(self) -> float:
-        """返回本次排程总时间跨度（可自定义逻辑）"""
-        return len(self.machine_available_dict.keys()) * self.machine_planned_daily_hour
+        """返回本次排程总时间跨度（可自定义逻辑）
+        返回所有可用机台的计划总时间
+        """
+        return sum(meta.planned_daily_hour for meta in self.machine_meta_dict.values() if meta.available)
+
+    def is_machine_available(self, machine_id: int) -> bool:
+        machine = self.machine_meta_dict.get(machine_id)
+        return machine and machine.available
+
+    def is_worker_available(self, worker_id: int) -> bool:
+        worker = self.worker_meta_dict.get(worker_id)
+        return worker and worker.available
+
+    def get_available_machines(self, resource_group_machine_id_list: List[int]) -> List[int]:
+        return [m_id for m_id in resource_group_machine_id_list if
+                (machine := self.machine_meta_dict.get(m_id)) and machine.available]
+
+    def get_available_workers(self, resource_group_worker_id_list: List[int]) -> List[int]:
+        return  [w_id for w_id in resource_group_worker_id_list if
+                 (worker := self.worker_meta_dict.get(w_id)) and worker.available]

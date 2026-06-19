@@ -37,10 +37,10 @@ class TestWorkCalendar(unittest.TestCase):
     #     cal = WorkCalendar(base_date=date.today())
     #     # 批量添加节假日
     #     for holiday in HOLIDAYS_2026:
-    #         cal.date_work_map[date.fromisoformat(holiday)] = False
+    #         cal.special_date_work_map[date.fromisoformat(holiday)] = False
     #     # 批量添加调休
     #     for makeup in MAKEUP_DAYS_2026:
-    #         cal.date_work_map[date.fromisoformat(makeup)] = True
+    #         cal.special_date_work_map[date.fromisoformat(makeup)] = True
 
         # # 普通工作日向后加
         # self.assertEqual(cal.daynum_to_date(cal.add_work_days("2026-06-15", 3)), datetime(2026, 6, 18).date())
@@ -51,7 +51,7 @@ class TestWorkCalendar(unittest.TestCase):
 
     def test_real_workday_logic(self):
         cal = WorkCalendar(base_date=date(2026, 6, 15))
-        cal.date_work_map = DATE_WORK_MAP
+        cal.special_date_work_map = DATE_WORK_MAP
         # 测试普通工作日
         self.assertTrue(cal.is_workday("2026-06-16"))  # 周二
         # 测试周末
@@ -59,10 +59,10 @@ class TestWorkCalendar(unittest.TestCase):
         # 测试周末
         self.assertFalse(cal.is_workday("2026-06-20"))  # 周日
         # 测试节假日
-        # cal.date_work_map[date(2026, 10, 1)] = False
+        # cal.special_date_work_map[date(2026, 10, 1)] = False
         self.assertFalse(cal.is_workday("2026-06-19"))
         # 测试调休
-        # cal.date_work_map[date(2026, 10, 8)] = True
+        # cal.special_date_work_map[date(2026, 10, 8)] = True
         self.assertTrue(cal.is_workday("2026-06-27"))
         # 测试加工作日
         # end_day = cal.add_work_days("2026-09-30", 3)
