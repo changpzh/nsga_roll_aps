@@ -41,14 +41,16 @@ class JobMeta:
 @dataclass
 class ManualLockAssign:
     op_global_id: int
+    business_op_id: str
+    fixed_machine_id: int
     fixed_machine_id: int
     fixed_worker_id: int
     lock_machine: bool = True
     lock_worker: bool = False
     operator: str = ""
     lock_reason: str = ""
-    lock_time: datetime = None
-    last_update_time: datetime = None
+    lock_time: Optional[datetime] = None
+    last_update_time: Optional[datetime] = None
 
     def __post_init__(self):
         if self.lock_time is None:

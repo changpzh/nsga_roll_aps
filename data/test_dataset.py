@@ -102,6 +102,7 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
             lock_time = datetime.strptime(lock_dict["lock_time"], "%Y-%m-%d %H:%M:%S") if (lock_time_str and lock_time_str.strip()) else None
             lock_obj = ManualLockAssign(
                 op_global_id=global_op_id,
+                business_op_id=lock_dict["business_op_id"],
                 fixed_machine_id=lock_dict["fixed_machine_id"],
                 fixed_worker_id=lock_dict["fixed_worker_id"],
                 lock_machine=lock_dict["lock_machine"],
