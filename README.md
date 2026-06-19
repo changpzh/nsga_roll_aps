@@ -36,4 +36,3 @@ v 代表详细打印每一条用例结果
 4. 优化订单给的是交付日期情形
 5. 优化人员在某天请假，某天不请假情形 worker_aviable_dict={WorkId:{Datetime:bool}},
 6. get_machine_overload_penalty,这个函数中过载应该是需要算出排程总的工作日数，应该判定：总的时间 > 排程工作日数 * 每天计划小时
-7. wo 更改了
