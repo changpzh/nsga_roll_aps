@@ -36,12 +36,14 @@ class JobMeta:
     due_contract_time: float
     base_weight: float
     quantity: int
-    delivery_date: Optional[date] = None
+    due_delivery_date: date
+    due_delivery_time: float
 
 @dataclass
 class ManualLockAssign:
     op_global_id: int
     business_op_id: str
+    business_op_no: str
     fixed_machine_id: int
     fixed_machine_id: int
     fixed_worker_id: int

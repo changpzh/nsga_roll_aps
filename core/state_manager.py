@@ -3,6 +3,7 @@ from datetime import timedelta
 from config.settings import *
 from core.calendar import WorkCalendar
 from core.data_structs import *
+import numpy as np
 
 class ProductionStateManager:
     def __init__(self):
@@ -13,7 +14,7 @@ class ProductionStateManager:
         # 所有资源组的配置字典 | 核心：获取某类工序可用的机器和工人列表 | 例子：{1: ResourceGroup(名称车削组, 机器[1,2], 工人[101,102], 工人最大并行1)}
         self.resource_group_dict: Dict[int, ResourceGroup] = {}
         # 全局工作日历 | 核心：计算合法的开始/结束时间，排除休息和节假日 | 例子：WorkCalendar(基准日期2026-06-17 08:00, 班次8-12,13-17, 周末休息)
-        self.work_calendar: WorkCalendar = None
+        self.work_calendar: Optional[WorkCalendar] = None
         # 操作ID到工件ID的快速反向映射 | 核心优化：O(1)查找某道工序属于哪个工件 | 例子：{100101: 1001, 100102: 1001}
         self.operation_id_to_job_id: dict[int, int] = {}
         # 所有工序的当前状态 | 核心：区分已完成/进行中/未开始，仅未开始工序参与排程 | 例子：{100101:0, 100102:1, 100103:2} (键=操作ID, 0=未开始,1=进行中,2=已完成)
@@ -58,25 +59,25 @@ class ProductionStateManager:
             return 0.0
         return len(new_jobs) / len(current_jobs)
 
-    def get_machine_overload_penalty(self, machine_id: int, total_load: float):
-        machine_meta = self.machine_meta_dict.get(machine_id)
-        if machine_meta is None:
-            return 0.0
-        if total_load > machine_meta.planned_daily_hour:
-            return (total_load - machine_meta.planned_daily_hour) * OVERLOAD_PENALTY_COEFFICIENT
-        return 0.0
+    # def get_machine_overload_penalty(self, machine_id: int, total_load: float):
+    #     machine_meta = self.machine_meta_dict.get(machine_id)
+    #     if machine_meta is None:
+    #         return 0.0
+    #     if total_load > machine_meta.planned_daily_hour:
+    #         return (total_load - machine_meta.planned_daily_hour) * OVERLOAD_PENALTY_COEFFICIENT
+    #     return 0.0
 
-    def calc_segment_overdue_penalty(self, finish_time: float, job_meta: JobMeta) -> float:
-        wt = job_meta.due_warn_time
-        ct = job_meta.due_contract_time
+    def calc_delivery_overdue_penalty(self, finish_time: float, job_meta: JobMeta) -> float:
+        delivery_t = job_meta.due_delivery_time
         weight = job_meta.base_weight
         penalty = 0.0
-        if finish_time > ct:
-            delta = finish_time - ct
-            penalty = weight * CONTRACT_OVERDUE_COEFFICIENT * (delta ** 2)
-        elif finish_time > wt:
-            delta = finish_time - wt
-            penalty = weight * WARN_OVERDUE_COEFFICIENT * delta
+        if finish_time > delivery_t:
+            delta = finish_time - delivery_t
+            if job_meta.priority in ["urgent"]:
+                penalty = weight * DELIVERY_OVERDUE_COEFFICIENT * (delta ** 2)  # 平方惩罚
+            else:
+                penalty = weight * DELIVERY_OVERDUE_COEFFICIENT * delta # 线性惩罚
+
         return penalty
 
     def refresh_production_status(self):
@@ -182,12 +183,6 @@ class ProductionStateManager:
         print(f"系统时间已设置为：{self.current_system_time:.1f} 小时")
         print(f"当前计划冻结区间：开工时间 < {self.current_system_time + PLAN_FROZEN_HORIZON:.1f} 小时")
 
-    def get_schedule_total_horizon(self) -> float:
-        """返回本次排程总时间跨度（可自定义逻辑）
-        返回所有可用机台的计划总时间
-        """
-        return sum(meta.planned_daily_hour for meta in self.machine_meta_dict.values() if meta.available)
-
     def is_machine_available(self, machine_id: int) -> bool:
         machine = self.machine_meta_dict.get(machine_id)
         return machine and machine.available
@@ -203,3 +198,54 @@ class ProductionStateManager:
     def get_available_workers(self, resource_group_worker_id_list: List[int]) -> List[int]:
         return  [w_id for w_id in resource_group_worker_id_list if
                  (worker := self.worker_meta_dict.get(w_id)) and worker.available]
+
+    def get_datetime_to_relative_hours(self, target_datetime: datetime) -> float:
+        cal = self.work_calendar
+        return cal.datetime_to_relative_hour(target_datetime)
+
+    def get_schedule_total_work_days_horizon(self, max_delivery_time: float) -> int:
+        """
+        返回本次排程的总天数
+        计算方式：取所有订单的最大交付日期与基准日期的天数差，向上取整
+        """
+        if not self.job_meta_dict:
+            return 1  # 没有订单时默认返回1天
+
+        # 转换为天数（向上取整，确保覆盖整个排程周期）
+        daily_work_hours = self.work_calendar.daily_work_hours
+        total_days = int(np.ceil(max_delivery_time / daily_work_hours))
+
+        total_work_days = 0
+        base_date = self.work_calendar.base_date.date()
+        # 遍历排程周期内的每一天
+        for day_offset in range(total_days):
+            current_date = base_date + timedelta(days=day_offset)
+            # 只有工作日才计算工时
+            if self.work_calendar.is_workday(current_date):
+                total_work_days += 1
+
+        # 至少返回1天
+        return max(1, total_work_days)
+
+    def get_schedule_total_work_hours_horizon(self, max_delivery_time: float, planned_daily_hour: float = 12.0) -> float:
+        """
+        返回本次排程周期内所有可用设备的总可用工时
+        自动排除周末和法定节假日，最后一天按实际需要的工时计算
+        """
+        # 转换为天数（向上取整，确保覆盖整个排程周期）
+        full_days = int(np.floor(max_delivery_time / planned_daily_hour))
+        last_day_remaining_hours = max_delivery_time % planned_daily_hour
+
+        total_work_hours = 0.0
+        base_date = self.work_calendar.base_date.date()
+
+        # 计算full_days天的总可用工时（完整工作日）
+        for day_offset in range(full_days):
+            current_date = base_date + timedelta(days=day_offset)
+            # 只有工作日才计算工时
+            if self.work_calendar.is_workday(current_date):
+                total_work_hours += planned_daily_hour
+
+        total_work_hours += last_day_remaining_hours
+
+        return total_work_hours

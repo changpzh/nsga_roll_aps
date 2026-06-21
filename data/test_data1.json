@@ -1,8 +1,8 @@
 {
   "calendar_config": {
     "base_date": "2026-06-15",
-    "default_work_start": 8.0,
-    "default_work_end": 20.0,
+    "default_daily_work_start": 8.0,
+    "default_daily_work_end": 20.0,
     "week_work_rule": [0, 1, 2, 3, 4]
   },
   "resource_groups": [
@@ -62,7 +62,7 @@
   "worker_dict": {
     "10": {
       "available": true,
-      "rest_day": ["2026-06-17", "2026-06-18"],
+      "rest_day": ["2026-06-18"],
       "tech_speed_ratio": {"0": 1.0, "1": 0.85}
     },
     "11": {
@@ -98,7 +98,7 @@
       "quantity": 2,
       "due_warn_time": 110.0,
       "due_contract_time": 120.0,
-      "delivery_date": "2026-06-19",
+      "due_delivery_date": "2026-06-19",
       "op_info_list": [
         {
           "business_op_id": "OP1001",
@@ -173,7 +173,7 @@
       "quantity": 3,
       "due_warn_time": 160.0,
       "due_contract_time": 180.0,
-      "delivery_date": "2026-07-07",
+      "due_delivery_date": "2026-07-07",
       "op_info_list": [
         {
           "business_op_id": "OP2001",
@@ -293,7 +293,7 @@
       "quantity": 4,
       "due_warn_time": 185.0,
       "due_contract_time": 200.0,
-      "delivery_date": "2026-06-27",
+      "due_delivery_date": "2026-06-27",
       "op_info_list": [
         {
           "business_op_id": "OP3001",
@@ -346,7 +346,7 @@
       "quantity": 2,
       "due_warn_time": 260.0,
       "due_contract_time": 300.0,
-      "delivery_date": "2026-06-18",
+      "due_delivery_date": "2026-06-18",
       "op_info_list": [
         {
           "business_op_id": "OP4001",
@@ -443,7 +443,7 @@
       "quantity": 3,
       "due_warn_time": 135.0,
       "due_contract_time": 150.0,
-      "delivery_date": "2026-06-17",
+      "due_delivery_date": "2026-06-17",
       "op_info_list": [
         {
           "business_op_id": "OP5001",

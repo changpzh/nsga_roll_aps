@@ -9,7 +9,7 @@ from core.calendar import WorkCalendar
 from core.data_structs import OperationMeta, JobMeta, ManualLockAssign
 
 
-def load_production_json(json_path: str = "data/test_data1.json") -> dict:
+def load_production_json(json_path: str = "data/test_data2.json") -> dict:
     current_file_dir = os.path.dirname(os.path.abspath(__file__))
     # 拼接json完整路径
     full_path = os.path.join(current_file_dir, json_path)
@@ -20,7 +20,7 @@ def load_production_json(json_path: str = "data/test_data1.json") -> dict:
         return json.load(f)
 
 
-def build_test_production_data(state_manager: ProductionStateManager, json_path: str = "test_data1.json"):
+def build_test_production_data(state_manager: ProductionStateManager, json_path: str = "test_data2.json"):
     sm = state_manager
     data = load_production_json(json_path)
 
@@ -29,11 +29,13 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
     base_date = datetime.strptime(cal_cfg["base_date"], "%Y-%m-%d").date()
     sm.work_calendar = WorkCalendar(
         base_date=base_date,
-        default_work_start=cal_cfg["default_work_start"],
-        default_work_end=cal_cfg["default_work_end"]
+        default_daily_work_start=cal_cfg["default_daily_work_start"],
+        default_daily_work_end=cal_cfg["default_daily_work_end"]
     )
     sm.work_calendar.special_date_work_map = cfg.DATE_WORK_MAP
     sm.work_calendar.set_week_rule(cal_cfg["week_work_rule"])
+    sm.work_calendar.add_calendar_item(date.fromisoformat("2026-06-22"),True, 8.0, 12.0)
+    sm.work_calendar.add_calendar_item(date.fromisoformat("2026-06-22"), True, 14.0, 20.0)
 
     # 2、资源组
     for rg_data in data["resource_groups"]:
@@ -102,7 +104,8 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
             lock_time = datetime.strptime(lock_dict["lock_time"], "%Y-%m-%d %H:%M:%S") if (lock_time_str and lock_time_str.strip()) else None
             lock_obj = ManualLockAssign(
                 op_global_id=global_op_id,
-                business_op_id=lock_dict["business_op_id"],
+                business_op_id=op_item["business_op_id"],
+                business_op_no=op_item["business_op_no"],
                 fixed_machine_id=lock_dict["fixed_machine_id"],
                 fixed_worker_id=lock_dict["fixed_worker_id"],
                 lock_machine=lock_dict["lock_machine"],
@@ -141,11 +144,15 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
         base_weight = JOB_PRIORITY_WEIGHT[job_data["priority"]]
 
         # 交货期解析，兼容null
-        delivery_raw = job_data.get("delivery_date")
-        delivery_date = None
+        delivery_raw = job_data.get("due_delivery_date")
+        due_delivery_date = None
         if delivery_raw is not None:
-            delivery_date = datetime.strptime(delivery_raw, "%Y-%m-%d").date()
-
+            due_delivery_date = datetime.strptime(delivery_raw, "%Y-%m-%d").date()
+        # 通过交货期日期，算出due_contract_time
+        due_delivery_time = 0.0
+        if due_delivery_date is not None:
+            due_delivery_datetime = datetime.combine(due_delivery_date, datetime.min.time()).replace(hour=int(state_manager.work_calendar.daily_work_end))
+            due_delivery_time = state_manager.get_datetime_to_relative_hours(due_delivery_datetime)
         job_meta = JobMeta(
             job_id=jid,
             op_id_list=op_id_list,
@@ -154,7 +161,8 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
             due_contract_time=job_data["due_contract_time"],
             base_weight=base_weight,
             quantity=job_data["quantity"],
-            delivery_date=delivery_date
+            due_delivery_date=due_delivery_date,
+            due_delivery_time=due_delivery_time
         )
         sm.job_meta_dict[jid] = job_meta
 

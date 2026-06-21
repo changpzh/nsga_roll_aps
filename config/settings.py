@@ -18,8 +18,8 @@ plt.rcParams["axes.unicode_minus"] = False
 JOB_PRIORITY_WEIGHT = {
     "low": 1.0,
     "normal": 2.0,
-    "high": 3.5,
-    "urgent": 6.0
+    "high": 4.0,
+    "urgent": 7.0
 }
 
 # ===================== 工序状态枚举 =====================
@@ -28,13 +28,20 @@ OP_STATUS_RUNNING = 1
 OP_STATUS_OPTIMIZABLE = 0
 OP_STATUS_MATERIAL_DELAY = 3
 
+# ===================== 订单优先级枚举 =====================
+JOB_PRIORITY_LOW = 1
+JOB_PRIORITY_NORMAL = 2
+JOB_PRIORITY_HIGH = 3
+JOB_PRIORITY_URGENT = 4
+
+
 # ===================== 业务成本系数 =====================
 WORKER_SWITCH_COST = 2.0
 WIP_WEIGHT_COEFFICIENT = 1.5
 
 # ===================== NSGA-II 静态超参数 =====================
-POPULATION_SIZE = 10
-MAX_GENERATION = 2
+POPULATION_SIZE = 40
+MAX_GENERATION = 60
 ELITE_RATE = 0.1
 MAX_FRONT_NUM = 30
 MUTATION_RATE = 0.15
@@ -49,7 +56,8 @@ ROLLING_PERTURB_RATE = 0.15
 OVERLOAD_PENALTY_COEFFICIENT = 8.0
 WARN_OVERDUE_COEFFICIENT = 1.2
 CONTRACT_OVERDUE_COEFFICIENT = 4.5
-PLAN_FROZEN_HORIZON = 10.0
+DELIVERY_OVERDUE_COEFFICIENT = 4.5
+PLAN_FROZEN_HORIZON = 48.0 # 表示两天
 
 # 特殊日期映射：key=日期, value=True=上班 False=休息（覆盖周规则）
 DATE_WORK_MAP = {date.fromisoformat("2026-06-19"): False, date.fromisoformat("2026-06-27"): True}

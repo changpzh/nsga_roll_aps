@@ -6,10 +6,11 @@ from utils.log_utils import get_logger
 logger = get_logger(__name__)
 
 class WorkCalendar:
-    def __init__(self, base_date: date, default_work_start: float = 8.0, default_work_end: float = 18.0):
+    def __init__(self, base_date: date, default_daily_work_start: float = 8.0, default_daily_work_end: float = 18.0):
         self.base_date: date = base_date    # 基准日期：相对工时0点对应的真实日历日期
-        self.default_work_start: float = default_work_start
-        self.default_work_end: float = default_work_end
+        self.daily_work_start: float = default_daily_work_start
+        self.daily_work_end: float = default_daily_work_end
+        self.daily_work_hours: float = default_daily_work_end - default_daily_work_start
         self.special_date_work_map: Dict[date, bool] = {}   # 特殊日期映射：key=日期, value=True=上班 False=休息（覆盖周规则）
         # 每日工时映射：支持不同日期不同上下班时间, # key:date对象, value:(上班小时,下班小时)
         self.date_hour_map: Dict[date, Tuple[float, float]] = {}
@@ -43,8 +44,8 @@ class WorkCalendar:
 
     def add_calendar_item(self, dt: date, is_work: bool, work_start: float = None, work_end: float = None):
         self.special_date_work_map[dt] = is_work
-        s = work_start if work_start is not None else self.default_work_start
-        e = work_end if work_end is not None else self.default_work_end
+        s = work_start if work_start is not None else self.daily_work_start
+        e = work_end if work_end is not None else self.daily_work_end
         self.date_hour_map[dt] = (s, e)
 
     def set_week_rule(self, work_week_list: List[int]):
@@ -74,7 +75,7 @@ class WorkCalendar:
         target_date = self.daynum_to_date(day_num)
         if target_date in self.date_hour_map:
             return self.date_hour_map[target_date]
-        return self.default_work_start, self.default_work_end
+        return self.daily_work_start, self.daily_work_end
 
     def get_valid_start_time_skip_holidays(self, ideal_start: float) -> float:
         """
@@ -154,3 +155,78 @@ class WorkCalendar:
                 ns, _ = self.get_day_work_hour(next_day)
                 current_time = next_day * 24.0 + ns
         return current_time
+
+    def datetime_to_relative_hour(self, target_datetime: Union[datetime, str]) -> float:
+        """
+        将自然日期时间转换为距离基准日期的有效工作小时数
+        如果交货日期是2026-06-25，则表示交货时间是这天的下班时间，例如：2026-06-25 20:00:00；
+        如果交货日期是节假日/周末，则表示必须在节假日前的最后一个工作日下班前完成，也就是交货日往前提到最近一个工作日。
+        :param target_datetime: 目标交付日期时间（精确到小时）
+        :return: 相对基准日期的有效工作小时数
+        """
+        # 第一步：统一转成 date 对象
+        target_time: datetime
+        if isinstance(target_datetime, str):
+            try:
+                # 优先解析完整datetime格式（支持带时区）
+                target_time = datetime.fromisoformat(target_datetime)
+                # 统一剥离时区，转换为本地时间
+                if target_time.tzinfo is not None:
+                    target_time = target_time.astimezone().replace(tzinfo=None)
+            except ValueError:
+                try:
+                    # 解析纯日期格式，自动补当天下班时间
+                    dt = date.fromisoformat(target_datetime)
+                    target_time = datetime.combine(dt, datetime.min.time()).replace(hour=int(self.daily_work_end))
+                except ValueError:
+                    # 格式完全错误，返回0标记为异常
+                    return 0.0
+        elif isinstance(target_datetime, date):
+            # 输入是纯date对象，自动补当天下班时间
+            target_time = datetime.combine(target_datetime, datetime.min.time()).replace(hour=int(self.daily_work_end))
+        else:
+            # 输入是datetime对象，剥离时区
+            target_time = target_datetime
+            if target_time.tzinfo is not None:
+                target_time = target_time.astimezone().replace(tzinfo=None)
+
+        # 确保self.base_date永远是datetime类型
+        if isinstance(self.base_date, date):
+            self.base_date = datetime.combine(self.base_date, datetime.min.time())
+
+        # 边界处理：如果目标日期在基准日期之前，返回0（已逾期）
+        if target_time < self.base_date:
+            return 0.0
+
+        start = self.base_date
+        end = target_time
+        start_date = start.date()
+        end_date = end.date()
+
+        start_hour = start.hour
+        end_hour = end.hour
+
+        total_hours = 0.0
+        # 情况1：同一天
+        if start_date == end_date:
+            if self.is_workday(start_date):
+                effective_start = max(start_hour, self.daily_work_start)
+                effective_end = min(end_hour, self.daily_work_end)
+                return max(0.0, effective_end - effective_start)
+        # 情况2：跨天
+        # 第一天（基准日）
+        if self.is_workday(start_date):
+            effective_start = max(start_hour, self.daily_work_start)
+            total_hours += max(0.0, self.daily_work_end - effective_start)
+
+        # 中间完整工作日（逐天遍历）
+        cur_date = start_date + timedelta(days=1)
+        while cur_date < end_date:
+            if self.is_workday(cur_date):
+                total_hours += self.daily_work_hours
+            cur_date += timedelta(days=1)
+        # 最后一天（目标日）
+        if self.is_workday(end_date):
+            effective_end = min(end_hour, self.daily_work_end)
+            total_hours += max(0.0, effective_end - self.daily_work_start)
+        return total_hours

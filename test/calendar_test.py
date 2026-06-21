@@ -10,8 +10,8 @@ class TestWorkCalendar(unittest.TestCase):
     def setUp(self):
         self.cal = WorkCalendar(
             base_date=datetime(2026, 6, 15).date(),
-            default_work_start=8.0,
-            default_work_end=20.0
+            default_daily_work_start=8.0,
+            default_daily_work_end=20.0
         )
         # 预设节假日
         self.cal.holiday_list = ["2026-01-01", "2026-05-01"]

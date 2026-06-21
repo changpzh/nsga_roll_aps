@@ -1,0 +1,272 @@
+{
+  "calendar_config": {
+    "base_date": "2026-06-15",
+    "default_daily_work_start": 8.0,
+    "default_daily_work_end": 20.0,
+    "week_work_rule": [0, 1, 2, 3, 4]
+  },
+  "resource_groups": [
+    {
+      "group_id": 1,
+      "group_name": "数控车组",
+      "machine_id_list": [0, 1],
+      "worker_id_list": [10, 11],
+      "worker_max_parallel": 2
+    },
+    {
+      "group_id": 2,
+      "group_name": "铣削组",
+      "machine_id_list": [2, 3, 5,8],
+      "worker_id_list": [12, 13],
+      "worker_max_parallel": 2
+    },
+    {
+      "group_id": 3,
+      "group_name": "磨床组",
+      "machine_id_list": [4, 6,7],
+      "worker_id_list": [14, 15,16],
+      "worker_max_parallel": 2
+    }
+  ],
+  "machine_changeover_map": {
+    "0": {"0": 0, "1": 4.5, "2": 5.0},
+    "1": {"0": 6.2, "1": 0, "2": 4.8},
+    "2": {"0": 5.2, "1": 4.9, "2": 0}
+  },
+  "machine_dict": {
+    "0": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "1": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "2": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "3": {
+      "available": true,
+      "planned_daily_hour": 10.0
+    },
+    "4": {
+      "available": true,
+      "planned_daily_hour": 20.0
+    },
+    "5": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "6": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "7": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    },
+    "8": {
+      "available": true,
+      "planned_daily_hour": 12.0
+    }
+  },
+  "worker_dict": {
+    "10": {
+      "available": true,
+      "rest_day": ["2026-06-18"],
+      "tech_speed_ratio": {"0": 1.0, "1": 0.85}
+    },
+    "11": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {"0": 1.2, "1": 0.8}
+    },
+    "12": {
+      "available": true,
+      "rest_day": ["2026-06-21"],
+      "tech_speed_ratio": {"0": 1.0, "1": 0.85}
+    },
+    "13": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {}
+    },
+    "14": {
+      "available": true,
+      "rest_day": ["2026-06-18"],
+      "tech_speed_ratio": {}
+    },
+    "15": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {"0": 1.2, "1": 0.8}
+    },
+    "16": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {"0": 1.2, "1": 0.8}
+    },
+    "17": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {"0": 1.2, "1": 0.8}
+    },
+    "18": {
+      "available": true,
+      "rest_day": [],
+      "tech_speed_ratio": {"0": 1.2, "1": 0.8}
+    }
+  },
+  "job_list": [
+    {
+      "job_id": 1,
+      "priority": "urgent",
+      "quantity": 2,
+      "due_warn_time": 110.0,
+      "due_contract_time": 120.0,
+      "due_delivery_date": "2026-06-19",
+      "op_info_list": [
+        {
+          "business_op_id": "OP1001",
+          "op_status": 2,
+          "business_op_no": "5",
+          "op_name": "粗车外圆",
+          "op_content": "粗车工件外圆至φ50mm",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 12.0,
+          "op_tech_type": 0,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": 1,
+            "fixed_worker_id": -1,
+            "lock_machine": true,
+            "lock_worker": false,
+            "operator": "调度张三",
+            "lock_reason": "客户指定机床加工"
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP1002",
+          "op_status": 1,
+          "business_op_no": "10",
+          "op_name": "精车外圆",
+          "op_content": "精车外圆至φ49.8±0.02mm",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 8.0,
+          "op_tech_type": 1,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP1003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "端面铣削",
+          "op_content": "铣削工件两端面保证总长100mm",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 15.0,
+          "op_tech_type": 2,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": 11,
+            "lock_machine": false,
+            "lock_worker": true,
+            "lock_time": "2026-06-13 23:24:28",
+            "operator": "周昌平",
+            "lock_reason": "测试锁定"
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 6,
+      "priority": "high",
+      "quantity": 2,
+      "due_warn_time": 190.0,
+      "due_contract_time": 210.0,
+      "due_delivery_date": "2026-06-28",
+      "op_info_list": [
+        {
+          "business_op_id": "OP6001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "粗车台阶轴",
+          "op_content": "粗车多台阶轴预留加工余量",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 11.0,
+          "op_tech_type": 0,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP6002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "台阶铣削",
+          "op_content": "铣削轴类台阶定位面",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 9.0,
+          "op_tech_type": 2,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP6003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "精密外圆磨",
+          "op_content": "精磨轴身外圆保证尺寸精度",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 13.0,
+          "op_tech_type": 0,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    }
+  ]
+}
