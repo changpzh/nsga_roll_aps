@@ -14,6 +14,15 @@ PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 plt.rcParams["font.family"] = ["SimHei", "Microsoft YaHei"]
 plt.rcParams["axes.unicode_minus"] = False
 
+# ===================== 工序状态映射 =====================
+
+OP_STATUS_MAP = {
+    0: "⏳待排",
+    1: "🔄运行中",
+    2: "✅已完工",
+    -1: "❓未知",
+}
+
 # ===================== 订单优先级逾期权重 =====================
 JOB_PRIORITY_WEIGHT = {
     "low": 1.0,

@@ -107,24 +107,14 @@ def init_single_chromosome(reorder_job_seq: List[int], state_manager: Production
             resource_assign.append((mid, wid))
             job_prev_machine_map[state_manager.op_meta_dict[op_id].belong_job_id] = mid
             continue
-        # 判断能否复用前道同组机床
-        reuse_mid = try_get_prev_same_group_machine(
-            current_op_id=op_id,
-            op_sequence=op_sequence,
-            resource_assign=resource_assign,
-            state_manager=state_manager
+
+        selected_machine_id, selected_worker_id = _select_machine_and_worker(
+            op_id, op_sequence, resource_assign, state_manager
         )
-
-        rg = state_manager.get_resource_group_by_op(op_id)
-        available_machines = state_manager.get_available_machines(rg.machine_id_list)
-        available_workers = state_manager.get_available_workers(rg.worker_id_list)
-        if reuse_mid is not None:
-            selected_machine_id = reuse_mid
-        else:
-            selected_machine_id = np.random.choice(available_machines)
-
-        selected_worker_id = np.random.choice(available_workers)
         resource_assign.append((selected_machine_id, selected_worker_id))
+
+    # ====================== 步骤5：最终去重 ======================
+    op_sequence, resource_assign = deduplicate_sequence(op_sequence, resource_assign)
 
     return {"op_sequence": op_sequence, "resource_assign": resource_assign}
 
@@ -274,14 +264,12 @@ def generate_heuristic_chromosome(reorder_job_seq: List[int], state_manager: Pro
     # shuffle_free=False：不随机打乱工序/订单顺序，严格遵循启发排序结果
     return init_single_chromosome(sorted_job_ids, state_manager, shuffle_free=False)
 
-
 def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateManager) -> dict:
     """
-     裁剪历史染色体：滚动排程前清理上一轮旧排程，生成符合当前状态的新初始染色体
-     逻辑：保留已冻结区域 → 保留已完工/运行工序 → 将手动锁定的工序放到可优化工序最前面 → 继承历史可优化工序 → 补齐新增插单工序
-     """
+    裁剪历史染色体：滚动排程前清理上一轮旧排程，生成符合当前状态的新初始染色体
+    逻辑：保留已冻结区域 → 保留已完工/运行工序 → 将手动锁定的工序放到可优化工序最前面 → 继承历史可优化工序 → 补齐新增插单工序
+    """
     new_chrom = copy.deepcopy(old_chrom)
-    #  获取当前所有可优化工序的ID集合（状态 = OP_STATUS_OPTIMIZABLE）,  过滤掉了已完工、运行中、已取消的工序
     opt_ops = set(state_manager.get_optimizable_operation_ids())
     new_op_sequence = []
     new_resource_assign = []
@@ -290,20 +278,17 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
 
     # 提前构建工序到位置的映射，O(1)查找，避免重复遍历
     op_to_pos = {op: idx for idx, op in enumerate(old_seq)}
-    processed_ops = set()  # 记录已经处理过的工序，避免重复添加
+    processed_ops = set()
 
     # ===================== 计算冻结边界 =====================
-    # 冻结边界 = 当前系统时间 + 计划冻结窗口时长
     freeze_boundary = state_manager.current_system_time + cfg.PLAN_FROZEN_HORIZON
-    # 从上一轮排程结果中获取所有工序的历史开工时间
     last_schedule = state_manager.last_schedule_result
 
-    # ===================== 第一步：保留不可变工序（已完工>运行中>冻结区未开工） =====================
+    # ===================== 第一步：跳过已完工/运行中，保留冻结区内未开工工序 =====================
     for op in old_seq:
         status = state_manager.operation_status_dict.get(op, -1)
-        if status in [cfg.OP_STATUS_FINISHED, cfg.OP_STATUS_RUNNING]:  # 已完工/正在运行，绝对不可变
-            new_op_sequence.append(op)
-            new_resource_assign.append(old_assign[op_to_pos[op]])
+        if status in [cfg.OP_STATUS_FINISHED, cfg.OP_STATUS_RUNNING]:
+            # 已完工/运行中：不加入排程序列，只标记为已处理
             processed_ops.add(op)
             continue
         if op in last_schedule:
@@ -314,7 +299,7 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
                 processed_ops.add(op)
 
     # ===================== 第二步：处理可优化工序 =====================
-    # 先处理手动锁定的工序（优先级最高，放到可优化工序最前面）
+    # 先处理手动锁定的工序
     locked_ops = [op for op in opt_ops if state_manager.is_op_manual_locked(op)]
     for op in locked_ops:
         if op in processed_ops:
@@ -326,7 +311,7 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
         new_resource_assign.append((machine, worker))
         processed_ops.add(op)
 
-    # 再处理历史中存在的可优化工序（继承历史顺序和资源）
+    # 再处理历史中存在的可优化工序
     for op in old_seq:
         if op in processed_ops or op not in opt_ops:
             continue
@@ -334,7 +319,7 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
         new_resource_assign.append(old_assign[op_to_pos[op]])
         processed_ops.add(op)
 
-    # 最后处理本轮新增的插单工序（历史中不存在）
+    # 最后处理本轮新增的插单工序
     for op in opt_ops:
         if op in processed_ops:
             continue
@@ -342,14 +327,17 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
         available_machines = state_manager.get_available_machines(rg.machine_id_list)
         available_workers = state_manager.get_available_workers(rg.worker_id_list)
         new_op_sequence.append(op)
-        new_resource_assign.append((np.random.choice(available_machines), np.random.choice(available_workers)))
+        new_resource_assign.append(_random_resource(available_machines, available_workers))
         processed_ops.add(op)
 
+    # ====================== 第三步：最终去重 ======================
+    new_op_sequence, new_resource_assign = deduplicate_sequence(new_op_sequence, new_resource_assign)
     new_chrom["op_sequence"] = new_op_sequence
     new_chrom["resource_assign"] = new_resource_assign
+
     return new_chrom
 
-def decode_chromosome(chromosome:Dict[str,Any], state_manager: ProductionStateManager) -> Tuple[List[float], List[dict]]:
+def decode_chromosome(chromosome: Dict[str, Any], state_manager: ProductionStateManager) -> Tuple[List[float], List[dict]]:
     """
     通用多目标排程染色体解码函数
     输入：染色体（操作序列+资源分配）、生产状态管理器、配置参数
@@ -363,6 +351,10 @@ def decode_chromosome(chromosome:Dict[str,Any], state_manager: ProductionStateMa
     operation_sequence = chromosome["op_sequence"]
     resource_assignment = chromosome["resource_assign"]
 
+    # ===== 去重 + 裁剪超长 =====
+    operation_sequence, resource_assignment = deduplicate_sequence(operation_sequence, resource_assignment)
+
+
     # --------------------------
     # 2. 初始化全局状态
     # --------------------------
@@ -374,7 +366,21 @@ def decode_chromosome(chromosome:Dict[str,Any], state_manager: ProductionStateMa
     # --------------------------
     for idx, operation_id in enumerate(operation_sequence):
         # 步骤1：获取并验证资源分配
-        raw_machine_id, raw_worker_id = resource_assignment[idx]
+        res = resource_assignment[idx]
+        if res is None:
+            # 兜底：随机分配可用资源
+            rg = state_manager.get_resource_group_by_op(operation_id)
+            avail_machines = state_manager.get_available_machines(rg.machine_id_list)
+            avail_workers = state_manager.get_available_workers(rg.worker_id_list)
+            if not avail_machines or not avail_workers:
+                raise ValueError(f"工序{operation_id}无可用资源，无法兜底分配")
+            raw_machine_id, raw_worker_id = _random_resource(avail_machines, avail_workers)
+            logger.warning(f"工序{operation_id}资源为None，兜底分配: 机床{raw_machine_id}, 工人{raw_worker_id}")
+        else:
+            raw_machine_id, raw_worker_id = res
+            raw_machine_id = int(raw_machine_id)
+            raw_worker_id = int(raw_worker_id)
+
         # 类型转换（确保符合类型安全要求）
         raw_machine_id = MachineId(raw_machine_id)
         raw_worker_id = WorkerId(raw_worker_id)
@@ -400,13 +406,13 @@ def decode_chromosome(chromosome:Dict[str,Any], state_manager: ProductionStateMa
         # 步骤6：生成排程记录
         schedule_detail.append(_build_schedule_record(scheduling_result, state_manager))
 
+
     # --------------------------
     # 4. 计算最终适应度向量
     # --------------------------
     fitness_vector = _compute_fitness_vector(trackers, state_manager, cfg)
 
     return fitness_vector, schedule_detail
-
 
 def fast_non_dominated_sorting(pop_fits: List[List[float]]) -> Tuple[List[List[int]], List[int]]:
     """通用快速非支配排序，快速非支配排序流程：
@@ -462,11 +468,23 @@ def pox_crossover(p1: dict, p2: dict, state_manager: ProductionStateManager) -> 
     free_ops1 = _extract_free_operations(seq1, frozen_ops)
     free_ops2 = _extract_free_operations(seq2, frozen_ops)
 
-    # POX 交叉产生子代【自由工序序列】（正确：工序ID列表）
+    # POX 交叉产生子代【自由工序序列】
     child1_free, child2_free = _pox_crossover_free_sequences(
         free_ops1, free_ops2, state_manager
     )
-    # 【同订单连续工艺同组复用机床】生成对应自由段资源分配
+
+    # 构建冻结工序集合，用于后续排除重复
+    frozen_set = set(frozen_ops)
+
+    # 从自由序列中移除可能在冻结段中已存在的工序（双重保险）
+    child1_free = [op for op in child1_free if op not in frozen_set]
+    child2_free = [op for op in child2_free if op not in frozen_set]
+
+    # 对自由段去重（保持首次出现的位置）
+    child1_free = deduplicate_op_list(child1_free)
+    child2_free = deduplicate_op_list(child2_free)
+
+    # 生成对应自由段资源分配
     c1_res = rebuild_resource_assign(child1_free, state_manager, frozen_boundary)
     c2_res = rebuild_resource_assign(child2_free, state_manager, frozen_boundary)
 
@@ -474,17 +492,21 @@ def pox_crossover(p1: dict, p2: dict, state_manager: ProductionStateManager) -> 
     child1_seq = frozen_ops + child1_free
     child2_seq = frozen_ops + child2_free
 
-    # 手动拼接资源，彻底删除冲突的 _build_child_assignments 调用
-    # 1. 先填充冻结段资源
+    # 填充冻结段资源
     child1_assign = []
     child2_assign = []
     for fid in frozen_ops:
         s = state_manager.last_schedule_result[fid]
         child1_assign.append((s["machine_id"], s["worker_id"]))
         child2_assign.append((s["machine_id"], s["worker_id"]))
-    # 2. 拼接重建好的带复用约束的自由段资源
+
+    # 拼接自由段资源
     child1_assign.extend(c1_res)
     child2_assign.extend(c2_res)
+
+    # ========== 最终去重兜底 ==========
+    child1_seq, child1_assign = deduplicate_sequence(child1_seq, child1_assign)
+    child2_seq, child2_assign = deduplicate_sequence(child2_seq, child2_assign)
 
     return (
         {"op_sequence": child1_seq, "resource_assign": child1_assign},
@@ -514,17 +536,9 @@ def mutate_chromosome(chrom: dict, state_manager: ProductionStateManager) -> dic
         if np.random.random() > cfg.MUTATION_RATE:
             continue
 
-        resource_group = state_manager.get_resource_group_by_op(op_id)
-        available_machines = state_manager.get_available_machines(resource_group.machine_id_list)
-        available_workers = state_manager.get_available_workers(resource_group.worker_id_list)
-
-        reuse_mid = try_get_prev_same_group_machine(op_id, op_seq, resource_assign, state_manager)
-        if reuse_mid is not None:
-            selected_machine_id = reuse_mid
-        else:
-            selected_machine_id = np.random.choice(available_machines)
-
-        selected_worker_id = np.random.choice(available_workers)
+        selected_machine_id, selected_worker_id = _select_machine_and_worker(
+            op_id, op_seq, resource_assign, state_manager
+        )
 
         resource_assign[idx] = (selected_machine_id, selected_worker_id)
     new_chrom["resource_assign"] = resource_assign
@@ -828,9 +842,11 @@ def _update_trackers(result: OperationSchedulingResult, trackers: SchedulingTrac
 def _build_schedule_record(result: OperationSchedulingResult, state_manager: Any) -> Dict[str, Any]:
     """生成前端展示和持久化用的排程记录字典"""
     op_meta = result.operation_metadata
+    op_id_int = int(result.operation_id)
 
     return {
-        "op_id": result.operation_id,
+        "op_id": op_id_int,
+        "op_status": op_meta.op_status,
         "job_id": result.job_id,
         "job_op_index": result.operation_index_in_job,
         "business_op_id": op_meta.business_op_id,
@@ -1000,10 +1016,33 @@ def _random_select_resources(op_id: int, state_manager) -> Tuple[int, int]:
     available_machines = state_manager.get_available_machines(rg.machine_id_list)
     # 筛选组内具备该工艺技能、在岗可用工人
     available_workers = state_manager.get_available_workers(rg.worker_id_list)
-    machine = np.random.choice(available_machines)
-    worker = np.random.choice(available_workers)
-    return machine, worker
+    return _random_resource(available_machines, available_workers)
 
+
+def _select_machine_and_worker(
+        op_id: int,
+        op_sequence: List[int],
+        resource_assign: List[Tuple],
+        state_manager: ProductionStateManager
+) -> Tuple[int, int]:
+    """
+    为工序选择机床和工人：优先复用前道同组机床，否则随机选择。
+    返回 (machine_id, worker_id)，均为纯 Python int。
+    """
+    reuse_mid = try_get_prev_same_group_machine(
+        current_op_id=op_id,
+        op_sequence=op_sequence,
+        resource_assign=resource_assign,
+        state_manager=state_manager
+    )
+
+    rg = state_manager.get_resource_group_by_op(op_id)
+    available_workers = state_manager.get_available_workers(rg.worker_id_list)
+
+    if reuse_mid is not None:
+        return int(reuse_mid), int(np.random.choice(available_workers))
+    else:
+        return _random_select_resources(op_id, state_manager)
 
 def _is_dominates(candidate: List[float], other: List[float]) -> bool:
     """
@@ -1166,17 +1205,53 @@ def rebuild_resource_assign(
                 resource_assign[pos] = (mid, wid)
                 continue
 
-            # 查询工艺前驱机床
-            reuse_mid = try_get_prev_same_group_machine(op_id, new_op_seq, resource_assign, state_manager)
-            rg = state_manager.get_resource_group_by_op(op_id)
-            avail_machines = state_manager.get_available_machines(rg.machine_id_list)
-            avail_workers = state_manager.get_available_workers(rg.worker_id_list)
+            selected_machine_id, selected_worker_id = _select_machine_and_worker(
+                op_id, new_op_seq, resource_assign, state_manager
+            )
 
-            if reuse_mid is not None:
-                select_mid = reuse_mid
-            else:
-                select_mid = np.random.choice(avail_machines)
-            select_wid = np.random.choice(avail_workers)
-            resource_assign[pos] = (select_mid, select_wid)
+            resource_assign[pos] = (selected_machine_id, selected_worker_id)
 
     return resource_assign
+
+
+def deduplicate_sequence(op_sequence: List[int], resource_assign: List[Tuple]) -> Tuple[List[int], List[Tuple]]:
+    """
+    对工序序列去重，保留首次出现的工序及其资源分配
+
+    Args:
+        op_sequence: 工序ID序列
+        resource_assign: 对应的资源分配序列
+
+    Returns:
+        (去重后的工序序列, 去重后的资源分配序列)
+    """
+    seen = set()
+    clean_seq = []
+    clean_assign = []
+    for op, res in zip(op_sequence, resource_assign):
+        if op not in seen:
+            seen.add(op)
+            clean_seq.append(op)
+            clean_assign.append(res)
+
+    if len(clean_seq) != len(op_sequence):
+        from collections import Counter
+        counter = Counter(op_sequence)
+        duplicates = {op: count for op, count in counter.items() if count > 1}
+        logger.warning(f"去重: {len(op_sequence)} → {len(clean_seq)}, 重复工序: {duplicates}")
+
+    return clean_seq, clean_assign
+
+def deduplicate_op_list(op_list: List[int]) -> List[int]:
+    """对工序ID列表去重，保留首次出现的位置"""
+    seen = set()
+    result = []
+    for op in op_list:
+        if op not in seen:
+            seen.add(op)
+            result.append(op)
+    return result
+
+def _random_resource(machines: List[int], workers: List[int]) -> Tuple[int, int]:
+    """随机选择可用机床和工人，返回纯 Python int 类型"""
+    return int(np.random.choice(machines)), int(np.random.choice(workers))

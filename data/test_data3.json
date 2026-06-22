@@ -688,6 +688,580 @@
           "material_ready_time": 0.0
         }
       ]
+    },
+    {
+      "job_id": 8,
+      "priority": "low",
+      "quantity": 3,
+      "due_warn_time": 280.0,
+      "due_contract_time": 320.0,
+      "due_delivery_date": "2026-07-10",
+      "op_info_list": [
+        {
+          "business_op_id": "OP8001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "开槽铣削",
+          "op_content": "铣削定位槽与安装槽",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 9.0,
+          "op_tech_type": 2,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP8002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "端面精车",
+          "op_content": "精车两端端面保证总长尺寸",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 8.0,
+          "op_tech_type": 1,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP8003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "外圆精磨",
+          "op_content": "精磨外圆满足装配公差",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 14.0,
+          "op_tech_type": 0,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": 4,
+            "fixed_worker_id": -1,
+            "lock_machine": true,
+            "lock_worker": false,
+            "lock_time": "2026-06-16 09:10:22",
+            "operator": "调度王五",
+            "lock_reason": "高负荷磨床专用加工"
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 9,
+      "priority": "urgent",
+      "quantity": 2,
+      "due_warn_time": 120.0,
+      "due_contract_time": 140.0,
+      "due_delivery_date": "2026-06-20",
+      "op_info_list": [
+        {
+          "business_op_id": "OP9001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "精密粗车",
+          "op_content": "精密粗车零件外形预留精磨余量",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 10.0,
+          "op_tech_type": 0,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": 1,
+            "fixed_worker_id": -1,
+            "lock_machine": true,
+            "lock_worker": false,
+            "lock_time": "2026-06-14 11:30:45",
+            "operator": "调度赵六",
+            "lock_reason": "加急订单指定设备"
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP9002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "成型铣削",
+          "op_content": "铣削异形成型结构",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 12.0,
+          "op_tech_type": 2,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 10,
+      "priority": "high",
+      "quantity": 4,
+      "due_warn_time": 200.0,
+      "due_contract_time": 220.0,
+      "due_delivery_date": "2026-06-29",
+      "op_info_list": [
+        {
+          "business_op_id": "OP10001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "内孔粗车",
+          "op_content": "粗车内孔去除多余材料",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 9.0,
+          "op_tech_type": 0,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP10002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "侧边铣削",
+          "op_content": "铣削零件侧边定位面",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 8.0,
+          "op_tech_type": 2,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP10003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "内孔精磨",
+          "op_content": "精磨内孔保证配合精度",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 15.0,
+          "op_tech_type": 0,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 11,
+      "priority": "normal",
+      "quantity": 3,
+      "due_warn_time": 240.0,
+      "due_contract_time": 260.0,
+      "due_delivery_date": "2026-07-05",
+      "op_info_list": [
+        {
+          "business_op_id": "OP11001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "轴体粗车",
+          "op_content": "粗车轴类零件整体外形",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 12.0,
+          "op_tech_type": 0,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP11002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "花键铣削",
+          "op_content": "铣削精密花键槽结构",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 13.0,
+          "op_tech_type": 2,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP11003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "轴身精磨",
+          "op_content": "精磨轴身保证圆度公差",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 16.0,
+          "op_tech_type": 0,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 12,
+      "priority": "low",
+      "quantity": 2,
+      "due_warn_time": 300.0,
+      "due_contract_time": 340.0,
+      "due_delivery_date": "2026-07-12",
+      "op_info_list": [
+        {
+          "business_op_id": "OP12001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "壳体粗铣",
+          "op_content": "粗铣壳体零件型腔结构",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 14.0,
+          "op_tech_type": 2,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": 3,
+            "fixed_worker_id": -1,
+            "lock_machine": true,
+            "lock_worker": false,
+            "lock_time": "2026-06-17 14:22:36",
+            "operator": "调度孙七",
+            "lock_reason": "小工时设备专属加工"
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP12002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "壳体精车",
+          "op_content": "精车壳体安装配合面",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 10.0,
+          "op_tech_type": 1,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP12003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "壳体平面磨",
+          "op_content": "精磨壳体贴合平面",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 11.0,
+          "op_tech_type": 0,
+          "op_quantity": 2,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 13,
+      "priority": "urgent",
+      "quantity": 4,
+      "due_warn_time": 150.0,
+      "due_contract_time": 170.0,
+      "due_delivery_date": "2026-06-22",
+      "op_info_list": [
+        {
+          "business_op_id": "OP13001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "销轴粗车",
+          "op_content": "粗车销轴整体外形尺寸",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 8.0,
+          "op_tech_type": 0,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP13002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "销轴开槽",
+          "op_content": "铣削销轴限位卡槽",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 7.0,
+          "op_tech_type": 2,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP13003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "销轴精磨",
+          "op_content": "精磨销轴配合外圆",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 12.0,
+          "op_tech_type": 0,
+          "op_quantity": 4,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 14,
+      "priority": "high",
+      "quantity": 3,
+      "due_warn_time": 250.0,
+      "due_contract_time": 270.0,
+      "due_delivery_date": "2026-07-06",
+      "op_info_list": [
+        {
+          "business_op_id": "OP14001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "支架粗铣",
+          "op_content": "粗铣支架主体结构去除余量",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 11.0,
+          "op_tech_type": 2,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP14002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "支架精车",
+          "op_content": "精车支架安装孔位",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 9.0,
+          "op_tech_type": 1,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP14003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "支架精磨",
+          "op_content": "精磨支架贴合基准面",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 13.0,
+          "op_tech_type": 0,
+          "op_quantity": 3,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
+    },
+    {
+      "job_id": 15,
+      "priority": "normal",
+      "quantity": 5,
+      "due_warn_time": 320.0,
+      "due_contract_time": 360.0,
+      "due_delivery_date": "2026-07-15",
+      "op_info_list": [
+        {
+          "business_op_id": "OP15001",
+          "op_status": 0,
+          "business_op_no": "5",
+          "op_name": "衬套粗车",
+          "op_content": "粗车衬套内外圆毛坯",
+          "resource_group_id": 1,
+          "resource_group_name": "数控车组",
+          "process_time": 10.0,
+          "op_tech_type": 0,
+          "op_quantity": 5,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP15002",
+          "op_status": 0,
+          "business_op_no": "10",
+          "op_name": "衬套铣平面",
+          "op_content": "铣削衬套定位平面",
+          "resource_group_id": 2,
+          "resource_group_name": "铣削组",
+          "process_time": 8.0,
+          "op_tech_type": 2,
+          "op_quantity": 5,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "lock_time": "",
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        },
+        {
+          "business_op_id": "OP15003",
+          "op_status": 0,
+          "business_op_no": "15",
+          "op_name": "衬套精磨",
+          "op_content": "精磨衬套内外配合面",
+          "resource_group_id": 3,
+          "resource_group_name": "磨床组",
+          "process_time": 14.0,
+          "op_tech_type": 0,
+          "op_quantity": 5,
+          "op_lock_info": {
+            "fixed_machine_id": -1,
+            "fixed_worker_id": -1,
+            "lock_machine": false,
+            "lock_worker": false,
+            "operator": "",
+            "lock_reason": ""
+          },
+          "material_ready_time": 0.0
+        }
+      ]
     }
   ]
 }

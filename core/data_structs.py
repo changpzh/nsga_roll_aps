@@ -45,7 +45,6 @@ class ManualLockAssign:
     business_op_id: str
     business_op_no: str
     fixed_machine_id: int
-    fixed_machine_id: int
     fixed_worker_id: int
     lock_machine: bool = True
     lock_worker: bool = False

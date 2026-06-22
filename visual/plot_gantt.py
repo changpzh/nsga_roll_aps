@@ -11,9 +11,9 @@ def plot_pareto_front(pareto_fits: List[List[float]]):
     overdue_list = [fit[1] for fit in pareto_fits]
     plt.figure(figsize=(10, 6))
     plt.scatter(makespan_list, overdue_list, c="#2E86AB", s=45, alpha=0.7, label="帕累托最优解")
-    plt.xlabel("最大完工时间(含超负荷惩罚)")
+    plt.xlabel("最大完工时间")
     plt.ylabel("订单加权逾期惩罚")
-    plt.title("NSGA-II 帕累托最优前沿｜标准6目标生产版")
+    plt.title("NSGA-II 帕累托最优前沿｜7目标生产版")
     plt.legend()
     plt.grid(alpha=0.3)
     plt.show()

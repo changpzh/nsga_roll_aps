@@ -7,6 +7,7 @@ from core.state_manager import ProductionStateManager
 from core.data_structs import ResourceGroup, MachineMeta, WorkerMeta
 from core.calendar import WorkCalendar
 from core.data_structs import OperationMeta, JobMeta, ManualLockAssign
+import hashlib
 
 
 def load_production_json(json_path: str = "data/test_data2.json") -> dict:
@@ -86,7 +87,6 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
         sm.worker_meta_dict[wid] = w_meta
 
     # 6、订单+工序
-    global_op_id = 0
     all_job_op_map = {}
     sm.op_meta_dict.clear()
     sm.operation_id_to_job_id.clear()
@@ -98,6 +98,10 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
         op_id_list = []
 
         for op_index, op_item in enumerate(op_info_list):
+            # ★ 用 job_id + business_op_id 生成稳定唯一ID
+            business_op_id = op_item["business_op_id"]
+            global_op_id = _generate_stable_op_id(jid, business_op_id)
+
             # 解析锁定信息为 ManualLockAssign 对象
             lock_dict = op_item["op_lock_info"]
             lock_time_str = lock_dict.get("lock_time")
@@ -138,7 +142,7 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
             sm.op_meta_dict[global_op_id] = op_meta
             sm.operation_id_to_job_id[global_op_id] = jid
             op_id_list.append(global_op_id)
-            global_op_id += 1
+
 
         all_job_op_map[jid] = op_id_list
         base_weight = JOB_PRIORITY_WEIGHT[job_data["priority"]]
@@ -174,3 +178,11 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
     print(f"JSON数据集加载构建完成｜总订单{len(sm.job_meta_dict)} 总工序{global_op_id}")
     print(f"all_job_op_map: {all_job_op_map}")
     return all_job_op_map
+
+
+def _generate_stable_op_id(job_id: int, business_op_id: str) -> int:
+    """用 SHA256 生成跨进程稳定的工序ID"""
+    unique_str = f"{job_id}:{business_op_id}"
+    # SHA256 → 取前 8 字节 → 转 int64
+    hash_bytes = hashlib.sha256(unique_str.encode()).digest()[:8]
+    return int.from_bytes(hash_bytes, 'big')  # 转为正整数

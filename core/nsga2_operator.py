@@ -94,7 +94,6 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
             population_size=population_size,
             state_manager=state_manager
         )
-
         # 更新种群
         population = next_population
         logger.info(f"NSGA-II 第{generation+1}/{max_generation_num}代迭代完成")
