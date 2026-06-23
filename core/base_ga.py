@@ -232,13 +232,7 @@ def perturb_historical_chromosome(trimmed_chrom: dict, state_manager: Production
             if np.random.random() > 0.4:
                 continue
         # 获取该工序所属的资源组，筛选当前可用的机床和工人
-        rg = state_manager.get_resource_group_by_op(op_id)
-        available_machines = state_manager.get_available_machines(rg.machine_id_list)
-        available_workers = state_manager.get_available_workers(rg.worker_id_list)
-
-        # 随机选择新的机床和工人，替换原来的资源分配
-        new_machine = np.random.choice(available_machines)
-        new_worker = np.random.choice(available_workers)
+        new_machine, new_worker = _random_select_resources(op_id,state_manager)
         assign[idx] = (new_machine, new_worker)
     chrom["resource_assign"] = assign
     return chrom
@@ -298,31 +292,29 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
                 new_resource_assign.append(old_assign[op_to_pos[op]])
                 processed_ops.add(op)
 
-    # ===================== 第二步：处理可优化工序 =====================
-    # 先处理手动锁定的工序
-    locked_ops = [op for op in opt_ops if state_manager.is_op_manual_locked(op)]
-    for op in locked_ops:
-        if op in processed_ops:
-            continue
-        lock_cfg = state_manager.get_lock_info(op)
-        machine = lock_cfg.fixed_machine_id if lock_cfg.lock_machine else -1
-        worker = lock_cfg.fixed_worker_id if lock_cfg.lock_worker else -1
-        new_op_sequence.append(op)
-        new_resource_assign.append((machine, worker))
-        processed_ops.add(op)
-
-    # 再处理历史中存在的可优化工序
+    # ===================== 第二步：按原有顺序处理剩余可优化工序（锁定+未锁定）=====================
+    # 按订单+工艺号顺序插入，保证工艺顺序
     for op in old_seq:
         if op in processed_ops or op not in opt_ops:
             continue
-        new_op_sequence.append(op)
-        new_resource_assign.append(old_assign[op_to_pos[op]])
+        if state_manager.is_op_manual_locked(op):
+            lock_cfg = state_manager.get_lock_info(op)
+            machine = lock_cfg.fixed_machine_id if lock_cfg.lock_machine else old_assign[op_to_pos[op]][0]
+            worker = lock_cfg.fixed_worker_id if lock_cfg.lock_worker else old_assign[op_to_pos[op]][1]
+            new_op_sequence.append(op)
+            new_resource_assign.append((machine, worker))
+        else:
+            new_op_sequence.append(op)
+            new_resource_assign.append(old_assign[op_to_pos[op]])
         processed_ops.add(op)
 
-    # 最后处理本轮新增的插单工序
-    for op in opt_ops:
-        if op in processed_ops:
-            continue
+    # ===================== 第三步：处理本轮新增的插单工序 =====================
+    # 新增工序追加到末尾，按订单+工艺号排序插入，保证工艺顺序
+    new_ops = [op for op in opt_ops if op not in processed_ops]
+    # 新增工序按订单+工艺号升序排序，避免打乱整体顺序
+    new_ops.sort(
+        key=lambda x: (state_manager.operation_id_to_job_id[x], int(state_manager.op_meta_dict[x].business_op_no)))
+    for op in new_ops:
         rg = state_manager.get_resource_group_by_op(op)
         available_machines = state_manager.get_available_machines(rg.machine_id_list)
         available_workers = state_manager.get_available_workers(rg.worker_id_list)
@@ -330,7 +322,7 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
         new_resource_assign.append(_random_resource(available_machines, available_workers))
         processed_ops.add(op)
 
-    # ====================== 第三步：最终去重 ======================
+    # ====================== 第四步：最终去重 ======================
     new_op_sequence, new_resource_assign = deduplicate_sequence(new_op_sequence, new_resource_assign)
     new_chrom["op_sequence"] = new_op_sequence
     new_chrom["resource_assign"] = new_resource_assign
@@ -628,36 +620,37 @@ def _apply_manual_locks(
     machine_id = original_machine_id
     worker_id = original_worker_id
 
-    # 应用机器锁定
-    if lock_config.lock_machine:
+    rg = state_manager.get_resource_group_by_op(operation_id)
+
+    # 应用机器锁定（仅当工序需要设备时生效）
+    if lock_config.lock_machine and rg.machine_id_list:
         machine_id = MachineId(lock_config.fixed_machine_id)
         logger.debug(f"操作[{operation_id}] 手动锁定机器: {original_machine_id} -> {machine_id}")
+    elif lock_config.lock_machine and not rg.machine_id_list:
+        logger.warning(f"操作[{operation_id}] 不需要设备，忽略机器锁定")
 
-    # 应用工人锁定
-    if lock_config.lock_worker:
+    # 应用工人锁定（仅当工序需要工人时生效）
+    if lock_config.lock_worker and rg.worker_id_list:
         worker_id = WorkerId(lock_config.fixed_worker_id)
         logger.debug(f"操作[{operation_id}] 手动锁定工人: {original_worker_id} -> {worker_id}")
+    elif lock_config.lock_worker and not rg.worker_id_list:
+        logger.warning(f"操作[{operation_id}] 不需要工人，忽略工人锁定")
 
-    # 只锁工人不锁机器：优先保留原可用的机器，不可用时选最优机器
-    if lock_config.lock_worker and not lock_config.lock_machine:
+    # 只锁工人不锁机器（仅当工序需要设备时）
+    if lock_config.lock_worker and not lock_config.lock_machine and rg.machine_id_list:
         if not state_manager.is_machine_available(original_machine_id):
-            resource_group = state_manager.get_resource_group_by_op(operation_id)
-            available_machines = state_manager.get_available_machines(resource_group.machine_id_list)
-            if not available_machines:  # 优化，这里不能终止程序，需将其排程到虚拟设备上
+            available_machines = state_manager.get_available_machines(rg.machine_id_list)
+            if not available_machines:
                 raise ValueError(f"操作[{operation_id}] 锁定工人后无可用机器")
-
             machine_id = select_best_machine(available_machines, trackers)
             logger.debug(f"操作[{operation_id}] 原机器不可用，自动选择: {machine_id}")
 
-    # 只锁机器不锁工人：优先保留原可用工人，不可用时选最优工人
-    if lock_config.lock_machine and not lock_config.lock_worker:
+    # 只锁机器不锁工人（仅当工序需要工人时）
+    if lock_config.lock_machine and not lock_config.lock_worker and rg.worker_id_list:
         if not state_manager.is_worker_available(original_worker_id):
-            resource_group = state_manager.get_resource_group_by_op(operation_id)
-            available_workers = state_manager.get_available_workers(resource_group.worker_id_list)
-            if not available_workers:   # 优化，这里不能终止程序，需将其排程到虚拟人员上
+            available_workers = state_manager.get_available_workers(rg.worker_id_list)
+            if not available_workers:
                 raise ValueError(f"操作[{operation_id}] 锁定机器后无可用工人")
-
-            # ✅ 已修复：使用统一的最优工人选择逻辑
             worker_id = select_best_worker(available_workers, trackers)
             logger.debug(f"操作[{operation_id}] 原工人不可用，自动选择: {worker_id}")
 
@@ -676,24 +669,23 @@ def _ensure_valid_resource(
     """
     resource_group = state_manager.get_resource_group_by_op(operation_id)
 
-    # 处理无效机器ID
-    if machine_id == MachineId(-1) or not state_manager.is_machine_available(machine_id):
-        available_machines = state_manager.get_available_machines(resource_group.machine_id_list)
-        if not available_machines:
-            raise ValueError(f"操作[{operation_id}] 无可用机器")
+    # 处理无效机器ID（仅当工序需要设备时）
+    if resource_group.machine_id_list:
+        if machine_id == MachineId(-1) or not state_manager.is_machine_available(machine_id):
+            available_machines = state_manager.get_available_machines(resource_group.machine_id_list)
+            if not available_machines:
+                raise ValueError(f"操作[{operation_id}] 无可用机器")
+            machine_id = select_best_machine(available_machines, trackers)
+            logger.debug(f"操作[{operation_id}] 机器无效，自动分配: {machine_id}")
 
-        machine_id = select_best_machine(available_machines, trackers)
-        logger.debug(f"操作[{operation_id}] 机器无效，自动分配: {machine_id}")
-
-    # 处理无效工人ID
-    if worker_id == WorkerId(-1) or not state_manager.is_worker_available(worker_id):
-        available_workers = state_manager.get_available_workers(resource_group.worker_id_list)
-        if not available_workers:
-            raise ValueError(f"操作[{operation_id}] 无可用工人")
-
-        # 使用统一的最优工人选择逻辑
-        worker_id = select_best_worker(available_workers, trackers)
-        logger.debug(f"操作[{operation_id}] 工人无效，自动分配: {worker_id}")
+    # 处理无效工人ID（仅当工序需要工人时）
+    if resource_group.worker_id_list:
+        if worker_id == WorkerId(-1) or not state_manager.is_worker_available(worker_id):
+            available_workers = state_manager.get_available_workers(resource_group.worker_id_list)
+            if not available_workers:
+                raise ValueError(f"操作[{operation_id}] 无可用工人")
+            worker_id = select_best_worker(available_workers, trackers)
+            logger.debug(f"操作[{operation_id}] 工人无效，自动分配: {worker_id}")
 
     return machine_id, worker_id
 
@@ -712,65 +704,71 @@ def _schedule_single_operation(
     operation_metadata = state_manager.op_meta_dict[operation_id]
     job_id = operation_metadata.belong_job_id
     technology_type = operation_metadata.op_tech_type
+    rg = state_manager.get_resource_group_by_op(operation_id)
 
     # --------------------------
-    # 1. 计算实际加工时间（考虑工人技能系数）
+    # 1. 计算实际加工时间（考虑工人技能系数，无工人则系数为1.0）
     # --------------------------
     base_processing_time = operation_metadata.process_time
     speed_ratio = 1.0
-    if worker_id != WorkerId(-1):
+    if worker_id != WorkerId(-1) and rg.worker_id_list:
         worker_meta = state_manager.worker_meta_dict.get(worker_id)
         if worker_meta and technology_type in worker_meta.tech_speed_ratio:
             speed_ratio = worker_meta.tech_speed_ratio[technology_type]
-    actual_processing_time = round(base_processing_time * speed_ratio,1)
+    actual_processing_time = round(base_processing_time * speed_ratio, 1)
 
     # --------------------------
     # 2. 计算理想最早开始时间（基础约束）
     # --------------------------
-    machine_available_time = trackers.machine_last_end_time_dict[machine_id]
+    # 强制校验工艺直接前驱的完工时间（双重兜底，彻底杜绝工艺颠倒）
+    machine_available_time = 0.0
+    if machine_id != MachineId(-1) and rg.machine_id_list:
+        machine_available_time = trackers.machine_last_end_time_dict[machine_id]
+
     job_available_time = trackers.job_last_operation_end_time_dict.get(job_id, 0.0)
     material_ready_time = operation_metadata.material_ready_time
+    current_biz_no = int(operation_metadata.business_op_no)
+    all_job_ops = [oid for oid, meta in state_manager.op_meta_dict.items() if meta.belong_job_id == job_id]
+    op_no_map = {int(state_manager.op_meta_dict[oid].business_op_no): oid for oid in all_job_ops}
+    sorted_nos = sorted(op_no_map.keys())
+    for idx, no in enumerate(sorted_nos):
+        if no == current_biz_no and idx > 0:
+            prev_op_id = op_no_map[sorted_nos[idx - 1]]
+            prev_finish_time = trackers.job_op_finish_time_dict.get(prev_op_id, 0.0)
+            job_available_time = max(job_available_time, prev_finish_time)
+            break
+
     ideal_start_time = max(machine_available_time, job_available_time, material_ready_time)
 
     # --------------------------
-    # 3. 处理工人并行任务约束（O(log n)时间复杂度）
+    # 3. 处理工人并行任务约束（仅当工序需要工人时）
     # --------------------------
-    if worker_id != WorkerId(-1):
-        resource_group = state_manager.get_resource_group_by_op(operation_id)
-        max_parallel = resource_group.worker_max_parallel
-
+    if worker_id != WorkerId(-1) and rg.worker_id_list:
+        max_parallel = rg.worker_max_parallel
         while True:
-            # 先清理堆中已结束的任务
             while (trackers.worker_task_ends_heap_dict[worker_id]
                    and trackers.worker_task_ends_heap_dict[worker_id][0] <= ideal_start_time):
                 heapq.heappop(trackers.worker_task_ends_heap_dict[worker_id])
-
-            # 检查是否满足并行限制
             if len(trackers.worker_task_ends_heap_dict[worker_id]) < max_parallel:
                 break
-
-            # 等待最早的任务结束
             earliest_end = trackers.worker_task_ends_heap_dict[worker_id][0]
             ideal_start_time = earliest_end
 
     # --------------------------
-    # 4. 处理机器换型时间（提前换型优化）
+    # 4. 处理机器换型时间（仅当工序需要设备时）
     # --------------------------
-    previous_tech = trackers.machine_previous_technology_type_dict[machine_id]
-    if previous_tech != -1 and previous_tech != technology_type:
-        changeover_map = state_manager.machine_meta_dict[machine_id].changeover_time_map
-        changeover_time = changeover_map.get(previous_tech, {}).get(technology_type, 0.0)
-        trackers.total_changeover_time += changeover_time
-
-        # 换型从机器可用时间开始
-        changeover_end = state_manager.calculate_actual_work_end_time(machine_available_time, changeover_time)
-        ideal_start_time = max(ideal_start_time, changeover_end)
-
-    # 更新机器工艺类型（无论是否换型都要更新）
-    trackers.machine_previous_technology_type_dict[machine_id] = technology_type
+    if machine_id != MachineId(-1) and rg.machine_id_list:
+        previous_tech = trackers.machine_previous_technology_type_dict[machine_id]
+        if previous_tech != -1 and previous_tech != technology_type:
+            changeover_map = state_manager.machine_meta_dict[machine_id].changeover_time_map
+            changeover_time = changeover_map.get(previous_tech, {}).get(technology_type, 0.0)
+            trackers.total_changeover_time += changeover_time
+            changeover_end = state_manager.calculate_actual_work_end_time(machine_available_time, changeover_time)
+            ideal_start_time = max(ideal_start_time, changeover_end)
+        trackers.machine_previous_technology_type_dict[machine_id] = technology_type
 
     # --------------------------
-    # 5. 应用班次日历约束，获取合法开始/结束时间
+    # 5. 应用班次日历约束
     # --------------------------
     actual_start_time = state_manager.get_valid_start_time(ideal_start_time)
     actual_end_time = state_manager.calculate_actual_work_end_time(actual_start_time, actual_processing_time)
@@ -800,7 +798,7 @@ def _schedule_single_operation(
     )
 
 def _update_trackers(result: OperationSchedulingResult, trackers: SchedulingTrackers) -> None:
-    """用调度结果更新所有全局状态"""
+    """用调度结果更新所有全局状态，支持无设备/无工人工序"""
     job_id = result.job_id
     machine_id = result.machine_id
     worker_id = result.worker_id
@@ -808,35 +806,29 @@ def _update_trackers(result: OperationSchedulingResult, trackers: SchedulingTrac
     end_time = result.end_time
     actual_processing_time = result.actual_processing_time
 
-    # 1. 累计在制品等待时间
+    # 1. 累计在制品等待时间（与资源无关，始终执行）
     if job_id in trackers.job_last_operation_end_time_dict:
         previous_end = trackers.job_last_operation_end_time_dict[job_id]
         if previous_end < start_time:
             trackers.total_wip_wait_time += (start_time - previous_end)
 
-    # 2. 更新机器状态 + 累加实际加工工时
-    trackers.machine_last_end_time_dict[machine_id] = end_time
-    trackers.machine_workloads_dict[machine_id].append(actual_processing_time)
-    trackers.machine_total_process_hour[machine_id] += actual_processing_time
+    # 2. 更新机器状态（仅当有设备时）
+    if machine_id != MachineId(-1):
+        trackers.machine_last_end_time_dict[machine_id] = end_time
+        trackers.machine_workloads_dict[machine_id].append(actual_processing_time)
+        trackers.machine_total_process_hour[machine_id] += actual_processing_time
 
-    #
-    # 3. 更新工人状态
+    # 3. 更新工人状态（仅当有工人时）
     if worker_id != WorkerId(-1):
-        # 统计工人切换次数（只有连续任务才不算切换）# 这里待把工人切换次数定义清楚了再使用。
-        # if trackers.worker_task_intervals[worker_id]:
-        #     last_task_end = trackers.worker_task_intervals[worker_id][-1][1]
-        #     if last_task_end == start_time:
-        #         trackers.worker_switch_count += 1
-
-        # 更新任务区间和结束时间堆
         trackers.worker_task_intervals_dict[worker_id].append((start_time, end_time))
         heapq.heappush(trackers.worker_task_ends_heap_dict[worker_id], end_time)
         trackers.worker_workloads_dict[worker_id].append(actual_processing_time)
 
-    # 4. 更新工件状态
+    # 4. 更新工件状态（与资源无关，始终执行）
     trackers.job_last_operation_end_time_dict[job_id] = end_time
+    trackers.job_op_finish_time_dict[result.operation_id] = end_time
 
-    # 5. 总工序计数
+    # 5. 总工序计数（与资源无关，始终执行）
     trackers.total_operation_count += 1
 
 def _build_schedule_record(result: OperationSchedulingResult, state_manager: Any) -> Dict[str, Any]:
@@ -886,31 +878,30 @@ def _compute_fitness_vector(
     # ===================== fit0: 逾期订单总数、fit1: 订单逾期总惩罚 =====================
     overdue_count = 0
     total_overdue_penalty = 0.0
-
     for job_id, finish_time in trackers.job_last_operation_end_time_dict.items():
         job_meta = state_manager.job_meta_dict.get(job_id)
         if not job_meta:
             continue
-        # print(f"=============jobid={job_id}, finishtime={finish_time}, job_delivery_time={job_meta.due_delivery_time}, delivery_date={job_meta.due_delivery_date}")
         if finish_time > job_meta.due_delivery_time:
             penalty = state_manager.calc_delivery_overdue_penalty(finish_time, job_meta)
             total_overdue_penalty += penalty
             overdue_count += 1
 
     # ===================== fit2: 总工期 =====================
-    makespan = max(trackers.job_last_operation_end_time_dict.values()) if trackers.job_last_operation_end_time_dict else 0.0
-    # machine_overload_penalty = 0.0
-    # for machine_id, workloads in trackers.machine_workloads_dict.items():
-    #     total_load = sum(workloads)
-    #     machine_overload_penalty += state_manager.get_machine_overload_penalty(machine_id, total_load)
-    # makespan_and_penalty = makespan + machine_overload_penalty
+    makespan = max(
+        trackers.job_last_operation_end_time_dict.values()) if trackers.job_last_operation_end_time_dict else 0.0
 
-    # ===================== fit3: 设备整体闲置率 = 总空闲时长 / 总可用工时 =====================
+    # ===================== fit3: 设备整体闲置率 =====================
     total_all_available_time = 0.0
     total_all_idle_time = 0.0
     for mid in trackers.machine_last_end_time_dict.keys():
+        # 跳过虚拟设备（无设备工序）
+        if mid == MachineId(-1):
+            continue
         proc_h = trackers.machine_total_process_hour[mid]
-        machine_available_h = state_manager.get_schedule_total_work_hours_horizon(makespan, state_manager.machine_meta_dict[mid].planned_daily_hour)
+        machine_available_h = state_manager.get_schedule_total_work_hours_horizon(makespan,
+                                                                                  state_manager.machine_meta_dict[
+                                                                                      mid].planned_daily_hour)
         idle_h = max(0.0, machine_available_h - proc_h)
         total_all_available_time += machine_available_h
         total_all_idle_time += idle_h
@@ -919,21 +910,26 @@ def _compute_fitness_vector(
     else:
         overall_equipment_idle_rate = 0.0
 
-    # ===================== fit4: 设备总换型时间【当前不实现，论证清楚后可实现】 =====================
+    # ===================== fit4: 设备总换型时间 =====================
     machine_total_changeover_time = trackers.total_changeover_time
 
-    # ===================== fit5: 机器负载不平衡度（加工工时方差） =====================
-    machine_total_loads = [sum(loads) for loads in trackers.machine_workloads_dict.values()]
+    # ===================== fit5: 机器负载不平衡度 =====================
+    machine_total_loads = []
+    for mid, loads in trackers.machine_workloads_dict.items():
+        if mid != MachineId(-1):
+            machine_total_loads.append(sum(loads))
     machine_unbalance = round(np.var(machine_total_loads), 2) if len(machine_total_loads) > 1 else 0.0
 
-    # ===================== fit6: 工人负载不平衡度（仅工时方差，去掉切换成本） =====================
-    worker_total_loads = [sum(loads) for loads in trackers.worker_workloads_dict.values()]
+    # ===================== fit6: 工人负载不平衡度 =====================
+    worker_total_loads = []
+    for wid, loads in trackers.worker_workloads_dict.items():
+        if wid != WorkerId(-1):
+            worker_total_loads.append(sum(loads))
     worker_unbalance = round(np.var(worker_total_loads), 2) if len(worker_total_loads) > 1 else 0.0
 
     # ===================== fit7: 在制品加权等待总成本 =====================
     wip_cost = trackers.total_wip_wait_time * cfg.WIP_WEIGHT_COEFFICIENT
 
-    # 组装最终适应度向量
     return [
         overdue_count,
         total_overdue_penalty,
@@ -1029,18 +1025,44 @@ def _select_machine_and_worker(
     为工序选择机床和工人：优先复用前道同组机床，否则随机选择。
     返回 (machine_id, worker_id)，均为纯 Python int。
     """
+    rg = state_manager.get_resource_group_by_op(op_id)
+    # 情况1：既不需要设备也不需要工人，直接返回(-1,-1)
+    if not rg.machine_id_list and not rg.worker_id_list:
+        logger.warning(f"工序{op_id} 对应的设备组{rg.group_name}没有任何设备和人员资源")
+        return -1, -1
+    # 情况2：不需要设备，只选工人
+    if not rg.machine_id_list:
+        available_workers = state_manager.get_available_workers(rg.worker_id_list)
+        worker_id = int(np.random.choice(available_workers)) if available_workers else -1
+        logger.debug(f"工序{op_id} 不需要设备，仅分配工人{worker_id}")
+        return -1, worker_id
+
+    # 情况3：不需要工人，只选设备（优先复用同订单前道设备）
+    if not rg.worker_id_list:
+        reuse_mid = try_get_prev_same_group_machine(
+            current_op_id=op_id,
+            op_sequence=op_sequence,
+            resource_assign=resource_assign,
+            state_manager=state_manager
+        )
+        if reuse_mid is not None:
+            logger.debug(f"工序{op_id} 不需要工人，复用设备{reuse_mid}")
+            return int(reuse_mid), -1
+        available_machines = state_manager.get_available_machines(rg.machine_id_list)
+        machine_id = int(np.random.choice(available_machines)) if available_machines else -1
+        logger.debug(f"工序{op_id} 不需要工人，分配设备{machine_id}")
+        return machine_id, -1
+
+    # 情况4：正常需要设备+工人
     reuse_mid = try_get_prev_same_group_machine(
         current_op_id=op_id,
         op_sequence=op_sequence,
         resource_assign=resource_assign,
         state_manager=state_manager
     )
-
-    rg = state_manager.get_resource_group_by_op(op_id)
     available_workers = state_manager.get_available_workers(rg.worker_id_list)
-
     if reuse_mid is not None:
-        return int(reuse_mid), int(np.random.choice(available_workers))
+        return int(reuse_mid), int(np.random.choice(available_workers) if available_workers else -1)
     else:
         return _random_select_resources(op_id, state_manager)
 
@@ -1254,4 +1276,7 @@ def deduplicate_op_list(op_list: List[int]) -> List[int]:
 
 def _random_resource(machines: List[int], workers: List[int]) -> Tuple[int, int]:
     """随机选择可用机床和工人，返回纯 Python int 类型"""
-    return int(np.random.choice(machines)), int(np.random.choice(workers))
+    """随机选择可用机床和工人，支持空资源组（不需要设备/工人）,返回int类型"""
+    machine_id = int(np.random.choice(machines)) if machines else -1
+    worker_id = int(np.random.choice(workers)) if workers else -1
+    return machine_id, worker_id

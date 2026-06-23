@@ -13,8 +13,20 @@
 
 ## 运行方式
 
-1. 激活venv虚拟环境: venvScriptsactivate.bat
+1. 激活venv虚拟环境: .\venv\Scripts\activate.bat
 2. 执行 `python main.py` 启动排程运算
+
+执行 python app.py
+
+# 运行方式
+
+1. 激活虚拟环境：.\venv\Scripts\Activate.ps1
+2. 执行 python app.py
+3. 退出虚拟环境：deactivate
+
+pip install gunicorn
+gunicorn -w 4 -b 0.0.0.0:5000 app:app --daemon
+
 
 ## 依赖
 

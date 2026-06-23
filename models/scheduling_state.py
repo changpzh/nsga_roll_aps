@@ -36,6 +36,8 @@ class SchedulingTrackers:
     # ============================== 工件状态 ==============================
     # 每个工件最后一个工序的结束时间 | 核心：判断工件前序约束 + 计算订单逾期惩罚 | 例子：{JobId(1001): 8.5, JobId(1002): 12.0}
     job_last_operation_end_time_dict: Dict[JobId, float] = field(default_factory=dict)
+    # 记录每道工序的实际完工时间，用于工艺前驱校验
+    job_op_finish_time_dict: Dict[OperationId, float] = field(default_factory=dict)
 
     # ============================== 全局累计指标 ==============================
     # 所有机器的总换型时间 | 直接作为多目标优化的第3个目标 | 例子：2.5 (总共花了2.5小时换型)

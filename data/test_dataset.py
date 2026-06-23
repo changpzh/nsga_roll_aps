@@ -186,3 +186,166 @@ def _generate_stable_op_id(job_id: int, business_op_id: str) -> int:
     # SHA256 → 取前 8 字节 → 转 int64
     hash_bytes = hashlib.sha256(unique_str.encode()).digest()[:8]
     return int.from_bytes(hash_bytes, 'big')  # 转为正整数
+
+def build_production_data_from_dict(state_manager: ProductionStateManager, data: dict):
+    """
+    从字典数据刷新 state_manager 的所有生产数据。
+    只更新可变数据（机床状态、工人状态、订单工序状态），保留 last_schedule_result 和 last_pareto_solutions。
+    """
+    sm = state_manager
+
+    # 1、工作日历（如果 base_date 变化才更新）
+    cal_cfg = data.get("calendar_config")
+    if cal_cfg:
+        base_date = datetime.strptime(cal_cfg["base_date"], "%Y-%m-%d").date()
+        if sm.work_calendar is None or sm.work_calendar.base_date != base_date:
+            sm.work_calendar = WorkCalendar(
+                base_date=base_date,
+                default_daily_work_start=cal_cfg["default_daily_work_start"],
+                default_daily_work_end=cal_cfg["default_daily_work_end"]
+            )
+            sm.work_calendar.special_date_work_map = cfg.DATE_WORK_MAP
+            sm.work_calendar.set_week_rule(cal_cfg["week_work_rule"])
+
+    # 2、资源组（如果变化才更新）
+    rg_data_list = data.get("resource_groups")
+    if rg_data_list:
+        for rg_data in rg_data_list:
+            rg = ResourceGroup(
+                group_id=rg_data["group_id"],
+                group_name=rg_data["group_name"],
+                machine_id_list=rg_data["machine_id_list"],
+                worker_id_list=rg_data["worker_id_list"],
+                worker_max_parallel=rg_data["worker_max_parallel"]
+            )
+            sm.resource_group_dict[rg.group_id] = rg
+
+    # 3、机床状态（更新 available 等可变字段）
+    machine_dict = data.get("machine_dict")
+    if machine_dict:
+        for mid_str, m_info in machine_dict.items():
+            mid = int(mid_str)
+            if mid in sm.machine_meta_dict:
+                sm.machine_meta_dict[mid].available = m_info["available"]
+            else:
+                changeover_raw = data.get("machine_changeover_map", {})
+                change_map = {}
+                for k, v in changeover_raw.items():
+                    change_map[int(k)] = {int(ik): iv for ik, iv in v.items()}
+                sm.machine_meta_dict[mid] = MachineMeta(
+                    machine_id=mid,
+                    available=m_info["available"],
+                    planned_daily_hour=m_info.get("planned_daily_hour", 12.0),
+                    changeover_time_map=change_map
+                )
+
+    # 4、工人状态（更新 available、rest_day 等可变字段）
+    worker_dict = data.get("worker_dict")
+    if worker_dict:
+        for wid_str, w_info in worker_dict.items():
+            wid = int(wid_str)
+            rest_dates = [datetime.strptime(ds, "%Y-%m-%d").date() for ds in w_info.get("rest_day", [])]
+            speed_raw = w_info.get("tech_speed_ratio", {})
+            speed_conv = {int(k): v for k, v in speed_raw.items()}
+
+            if wid in sm.worker_meta_dict:
+                sm.worker_meta_dict[wid].available = w_info["available"]
+                sm.worker_meta_dict[wid].rest_day = rest_dates
+                sm.worker_meta_dict[wid].tech_speed_ratio = speed_conv
+            else:
+                sm.worker_meta_dict[wid] = WorkerMeta(
+                    worker_id=wid,
+                    available=w_info["available"],
+                    rest_day=rest_dates,
+                    tech_speed_ratio=speed_conv
+                )
+
+    # 5、订单工序状态（更新 op_status，新增订单）
+    job_list = data.get("job_list")
+    if job_list:
+        for job_data in job_list:
+            jid = job_data["job_id"]
+            op_info_list = job_data["op_info_list"]
+
+            # 如果订单不存在，新增
+            if jid not in sm.job_meta_dict:
+                op_id_list = []
+                for op_index, op_item in enumerate(op_info_list):
+                    business_op_id = op_item["business_op_id"]
+                    global_op_id = _generate_stable_op_id(jid, business_op_id)
+                    op_id_list.append(global_op_id)
+
+                    if global_op_id not in sm.op_meta_dict:
+                        # 解析锁定信息
+                        lock_dict = op_item.get("op_lock_info", {})
+                        lock_time_str = lock_dict.get("lock_time")
+                        lock_time = datetime.strptime(lock_dict["lock_time"], "%Y-%m-%d %H:%M:%S") if (lock_time_str and lock_time_str.strip()) else None
+                        lock_obj = ManualLockAssign(
+                            op_global_id=global_op_id,
+                            business_op_id=op_item.get("business_op_id", ""),
+                            business_op_no=op_item.get("business_op_no", ""),
+                            fixed_machine_id=lock_dict.get("fixed_machine_id", -1),
+                            fixed_worker_id=lock_dict.get("fixed_worker_id", -1),
+                            lock_machine=lock_dict.get("lock_machine", False),
+                            lock_worker=lock_dict.get("lock_worker", False),
+                            operator=lock_dict.get("operator", ""),
+                            lock_reason=lock_dict.get("lock_reason", ""),
+                            lock_time=lock_time,
+                            last_update_time=lock_time
+                        )
+
+                        op_meta = OperationMeta(
+                            op_global_id=global_op_id,
+                            op_status=op_item["op_status"],
+                            business_op_id=op_item.get("business_op_id", ""),
+                            business_op_no=op_item.get("business_op_no", ""),
+                            op_name=op_item.get("op_name", ""),
+                            op_content=op_item.get("op_content", ""),
+                            belong_job_id=jid,
+                            resource_group_id=op_item["resource_group_id"],
+                            resource_group_name=op_item.get("resource_group_name", ""),
+                            process_time=op_item["process_time"],
+                            op_index_in_job=op_index,
+                            op_quantity=op_item.get("op_quantity", 1),
+                            material_ready_time=op_item.get("material_ready_time", 0.0),
+                            op_tech_type=op_item.get("op_tech_type", 0),
+                            op_lock_info=lock_obj
+                        )
+                        sm.op_meta_dict[global_op_id] = op_meta
+                        sm.operation_id_to_job_id[global_op_id] = jid
+
+                base_weight = JOB_PRIORITY_WEIGHT.get(job_data["priority"], 1.0)
+                delivery_raw = job_data.get("due_delivery_date")
+                due_delivery_date = datetime.strptime(delivery_raw, "%Y-%m-%d").date() if delivery_raw else None
+                due_delivery_time = 0.0
+                if due_delivery_date and sm.work_calendar:
+                    due_delivery_datetime = datetime.combine(due_delivery_date, datetime.min.time()).replace(
+                        hour=int(sm.work_calendar.daily_work_end)
+                    )
+                    due_delivery_time = sm.get_datetime_to_relative_hours(due_delivery_datetime)
+
+                job_meta = JobMeta(
+                    job_id=jid,
+                    op_id_list=op_id_list,
+                    priority=job_data["priority"],
+                    due_warn_time=job_data.get("due_warn_time", 0),
+                    due_contract_time=job_data.get("due_contract_time", 0),
+                    base_weight=base_weight,
+                    quantity=job_data.get("quantity", 1),
+                    due_delivery_date=due_delivery_date,
+                    due_delivery_time=due_delivery_time
+                )
+                sm.job_meta_dict[jid] = job_meta
+            else:
+                # 订单已存在，只更新工序状态
+                for op_item in op_info_list:
+                    business_op_id = op_item["business_op_id"]
+                    global_op_id = _generate_stable_op_id(jid, business_op_id)
+                    if global_op_id in sm.op_meta_dict:
+                        sm.op_meta_dict[global_op_id].op_status = op_item["op_status"]
+
+    # 刷新 operation_status_dict
+    sm.operation_status_dict = {
+        op_id: op_meta.op_status
+        for op_id, op_meta in sm.op_meta_dict.items()
+    }

@@ -10,7 +10,7 @@
       "group_id": 1,
       "group_name": "数控车组",
       "machine_id_list": [0, 1],
-      "worker_id_list": [10, 11],
+      "worker_id_list": [],
       "worker_max_parallel": 2
     },
     {
