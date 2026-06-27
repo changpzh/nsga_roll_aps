@@ -1,3 +1,4 @@
+# main.py
 import numpy as np
 from core.state_manager import ProductionStateManager
 from data.test_dataset import build_test_production_data
@@ -8,6 +9,10 @@ import core.base_ga as base_ga
 from visual.plot_gantt import plot_pareto_front, plot_machine_gantt, plot_worker_gantt, plot_operation_gantt
 from utils.log_utils import get_logger
 import config as cfg
+from datetime import timedelta, datetime, date
+from config import settings
+import json
+
 
 # 全局日志初始化（仅在main.py执行一次）
 logger = get_logger(__name__)
@@ -19,19 +24,26 @@ if __name__ == "__main__":
     # ============================================================
     np.random.seed(40)
     sm = ProductionStateManager()
-    all_job_op_map = build_test_production_data(sm, "test_data1.json")
+    all_job_op_map = build_test_production_data(sm, "test_data.json")
     all_job_ids = list(all_job_op_map.keys())
-
-    db_lock_data = sm.export_all_manual_lock()
-    print("人工锁定配置可入库数据样例：", db_lock_data[:1])
-
     trigger = RollingScheduleTrigger(sm)
 
     print("\n" + "=" * 70)
     print("【第一次全量调度】系统初始时间：0.0小时")
     print("=" * 70)
 
-    sm.set_system_time(0.0)
+    # 强制从下一个工作日白班开始排程
+    ref_dt = datetime(2026, 6, 24, 10, 0)
+    next_workday_start = sm.get_next_workday_start_time(current_datetime=ref_dt)
+    sm.set_system_time(next_workday_start)
+
+    print(f"get_next_workday_start_time返回值: {next_workday_start}")
+    print(f'next_start_datetime:{sm.relative_hour_from_base_to_first_start_datetime(next_workday_start)}')
+    print(f'_base_work_zero_datetime{sm.work_calendar._base_work_zero_datetime}')
+    print(f"对应实际日期: {sm.relative_hour_from_base_to_real_datetime(next_workday_start)}")
+    print(f"2026-06-24是否为工作日: {sm.work_calendar.is_workday(date(2026, 6, 24))}")
+
+
     pareto_set, final_fits, pareto_idx_list = nsga2_rolling_schedule(sm, all_job_ids)
 
     print(f"\n帕累托最优解集数量：{len(pareto_set)}")
@@ -63,12 +75,17 @@ if __name__ == "__main__":
             f"锁定:{str(item['is_manual_locked']):5s} 冻结:{str(item['is_frozen']):5s}"
         )
 
+    print("排程结果所有工序的start_time:", [round(item["start_time"], 1) for item in schedule_detail])
+    print("当前系统时间:", sm.current_system_time)
+
     print("\n正在生成初始调度图表...")
     plot_pareto_front([final_fits[i] for i in pareto_idx_list])
     plot_machine_gantt(schedule_detail, sm)
     plot_worker_gantt(schedule_detail, sm)
     plot_operation_gantt(schedule_detail, sm)
 
+
+'''
     # ============================================================
     # 【第二次滚动排程】模拟生产推进了 13 小时，加载test_data3.json数据
     # ============================================================
@@ -76,7 +93,7 @@ if __name__ == "__main__":
     print("【第二次滚动排程】模拟生产已推进 13.0 小时")
     print("=" * 70)
 
-    sm.advance_system_time(13.0)
+    sm.advance_system_time(12.0)
 
     new_all_job_op_map = build_test_production_data(sm, json_path="test_data3.json")
     new_all_job_ids = list(new_all_job_op_map.keys())
@@ -192,3 +209,20 @@ if __name__ == "__main__":
     #     plot_operation_gantt(new_schedule_detail, sm)
     # else:
     #     print("插单重调度无有效帕累托解集")
+'''
+
+
+def init_calendar(state_manager: ProductionStateManager):
+    # 根据配置加载班次数据
+    if settings.SHIFT_DATA_SOURCE == 'json_file':
+        with open(settings.SHIFT_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            shift_configs = json.load(f)
+    else:
+        # 从数据库加载（需自行实现查询）
+        # shift_configs = fetch_from_db(settings.SHIFT_CONFIG_TABLE)
+        raise NotImplementedError("数据库班次加载方式需自行实现")
+
+    state_manager.load_shift_data_from_db(
+        base_date=settings.BASE_DATE,
+        shift_configs=shift_configs
+    )

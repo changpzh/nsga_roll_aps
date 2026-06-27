@@ -1,9 +1,12 @@
-from typing import Dict, List, Set, Tuple
-from datetime import timedelta
+# core/state_manager.py
+from time import daylight
+from typing import Dict, List, Set, Tuple, Union
+from datetime import timedelta, time
 from config.settings import *
 from core.calendar import WorkCalendar
 from core.data_structs import *
 import numpy as np
+
 
 class ProductionStateManager:
     def __init__(self):
@@ -31,8 +34,7 @@ class ProductionStateManager:
         self.current_system_time: float = 0.0
         # 上一次的完整排程结果 | 核心：冻结区间内的操作直接复用历史结果，保证计划稳定性 | 例子：{100101: {"start_time":0.0, "end_time":2.0, "machine_id":1}}
         self.last_schedule_result: Dict[int, dict] = {}
-        # 设备每日计划工作时长,默认12个小时
-        self.machine_planned_daily_hour: float = 12.0
+
 
     def cache_schedule_result(self, schedule_detail: List[dict]):
         self.last_schedule_result = {}
@@ -44,6 +46,27 @@ class ProductionStateManager:
                 "sequence": item["op_id"]
             }
         print(f"已缓存本次调度结果，共 {len(schedule_detail)} 道工序")
+
+    def get_valid_start_time(self, ideal_start: float) -> float:
+        return self.work_calendar.get_valid_start_hours_skip_holidays(ideal_start)
+
+    def calculate_actual_work_end_time(self, start_time: float, work_duration: float) -> float:
+        return self.work_calendar.get_actual_work_end_hours_skip_holidays(start_time, work_duration)
+
+    def get_work_hours_between_relative_hour(self, start_time: float, end_time: float) -> float:
+        return self.work_calendar.work_hours_between_relative_hour(start_time, end_time)
+
+    def relative_hour_to_datetime(self, relative_hour: float) -> datetime:
+        return self.work_calendar.base_relative_hour_to_real_datetime(relative_hour)
+
+    def relative_hour_to_iso(self, relative_hour: float) -> str:
+        return self.relative_hour_to_datetime(relative_hour).isoformat()
+
+    def datetime_to_relative_hour(self, target: Union[datetime, date, str]) -> float:
+        return self.work_calendar.datetime_to_base_relative_hour(target)
+
+    def is_workday(self, dt: date) -> bool:
+        return self.work_calendar.is_workday(dt)
 
     def get_optimizable_operation_ids(self) -> List[int]:
         return [op_idx for op_idx, status in self.operation_status_dict.items() if status == OP_STATUS_OPTIMIZABLE]
@@ -138,7 +161,7 @@ class ProductionStateManager:
             )
             self.op_meta_dict[op.op_global_id] = op
             self.operation_id_to_job_id[op.op_global_id] = job_id
-            self.operation_status_dict.append(OP_STATUS_OPTIMIZABLE)
+            self.operation_status_dict[op.op_global_id] = OP_STATUS_OPTIMIZABLE
             new_op_ids.append(op.op_global_id)
         new_job.op_id_list = new_op_ids
         return new_op_ids
@@ -146,28 +169,16 @@ class ProductionStateManager:
     def refresh_optimizable_operation_pool(self):
         self.get_optimizable_operation_ids()
 
-    def is_work_day(self, day_num:int) -> bool:
-        cal = self.work_calendar
-        return cal.is_workday(day_num) if cal else True
 
-    def get_valid_start_time(self, ideal_start: float) -> float:
-        cal = self.work_calendar
-        return cal.get_valid_start_time_skip_holidays(ideal_start) if cal else ideal_start
-
-    def calculate_actual_work_end_time(self, start_time: float, work_duration: float) -> float:
-        cal = self.work_calendar
-        if cal is None:
-            return start_time + work_duration
-        return cal.calculate_actual_work_end_time_skip_holidays(start_time, work_duration)
-
-    def relative_hour_to_datetime(self, relative_hour: float) -> datetime:
+    def relative_hour_from_base_to_real_datetime(self, relative_hour: float) -> datetime:
         if self.work_calendar is None:
             return datetime.now()
-        delta = timedelta(hours=relative_hour)
-        return datetime.combine(self.work_calendar.base_date, datetime.min.time()) + delta
+        return self.work_calendar.base_relative_hour_to_real_datetime(relative_hour)
 
-    def relative_hour_to_iso(self, relative_hour: float) -> str:
-        return self.relative_hour_to_datetime(relative_hour).isoformat()
+    def relative_hour_from_base_to_first_start_datetime(self, relative_hour: float) -> datetime:
+        if self.work_calendar is None:
+            return datetime.now()
+        return self.work_calendar.base_relative_hour_to_first_start_datetime(relative_hour)
 
     def advance_system_time(self, hours: float):
         if hours < 0:
@@ -199,53 +210,93 @@ class ProductionStateManager:
         return  [w_id for w_id in resource_group_worker_id_list if
                  (worker := self.worker_meta_dict.get(w_id)) and worker.available]
 
-    def get_datetime_to_relative_hours(self, target_datetime: datetime) -> float:
+    def get_datetime_to_base_relative_hours(self, target_datetime: datetime) -> float:
         cal = self.work_calendar
-        return cal.datetime_to_relative_hour(target_datetime)
+        return cal.datetime_to_base_relative_hour(target_datetime)
 
-    def get_schedule_total_work_days_horizon(self, max_delivery_time: float) -> int:
+    def get_first_start_time_for_date(self, dt: date) -> Optional[float]:
         """
-        返回本次排程的总天数
-        计算方式：取所有订单的最大交付日期与基准日期的天数差，向上取整
+        获取某一天第一个正式日间开班的起始小时（0~24）
+        过滤规则：名称为夜班 且 起始小时<12 的凌晨跨天拆分片段
         """
-        if not self.job_meta_dict:
-            return 1  # 没有订单时默认返回1天
+        seg_list = self.work_calendar.get_segments_for_date(dt)
+        if not seg_list:
+            return None
 
-        # 转换为天数（向上取整，确保覆盖整个排程周期）
-        daily_work_hours = self.work_calendar.daily_work_hours
-        total_days = int(np.ceil(max_delivery_time / daily_work_hours))
+        # 按时段起始时间升序排列
+        seg_sorted = sorted(seg_list, key=lambda x: x[1])
 
-        total_work_days = 0
-        base_date = self.work_calendar.base_date.date()
-        # 遍历排程周期内的每一天
-        for day_offset in range(total_days):
-            current_date = base_date + timedelta(days=day_offset)
-            # 只有工作日才计算工时
-            if self.work_calendar.is_workday(current_date):
-                total_work_days += 1
+        for shift_name, s, e in seg_sorted:
+            # 新判定：是夜班 + 开工时间小于12点 → 跨天凌晨段，跳过
+            is_cross_night_segment = (shift_name == "夜班") and (s < 12.0 - 1e-9)
+            if not is_cross_night_segment:
+                return s
 
-        # 至少返回1天
-        return max(1, total_work_days)
+        # 极端场景：全天只有夜班时段，返回最早一个时段起点
+        return seg_sorted[0][1] if seg_sorted else None
 
-    def get_schedule_total_work_hours_horizon(self, max_delivery_time: float, planned_daily_hour: float = 12.0) -> float:
+    def get_next_workday_start_time(self, current_datetime: datetime = None) -> float:
         """
-        返回本次排程周期内所有可用设备的总可用工时
-        自动排除周末和法定节假日，最后一天按实际需要的工时计算
+        获取下一个工作日【第一个白班班次起始时间】对应的相对工时
+        :param current_datetime: 参考时间，不传默认取本机当前系统时间
+        :return: 下一个工作日最早开班时刻的相对工时
         """
-        # 转换为天数（向上取整，确保覆盖整个排程周期）
-        full_days = int(np.floor(max_delivery_time / planned_daily_hour))
-        last_day_remaining_hours = max_delivery_time % planned_daily_hour
+        if current_datetime is None:
+            current_datetime = datetime.now()
 
-        total_work_hours = 0.0
-        base_date = self.work_calendar.base_date.date()
+        current_date = current_datetime.date()
+        candidate_date = current_date + timedelta(days=1)
 
-        # 计算full_days天的总可用工时（完整工作日）
-        for day_offset in range(full_days):
-            current_date = base_date + timedelta(days=day_offset)
-            # 只有工作日才计算工时
-            if self.work_calendar.is_workday(current_date):
-                total_work_hours += planned_daily_hour
+        # 找到第一个工作日
+        while not self.work_calendar.is_workday(candidate_date):
+            candidate_date += timedelta(days=1)
 
-        total_work_hours += last_day_remaining_hours
+        # 获取该天所有班次，按开始时间升序，取最早班次起点
+        seg_list = self.work_calendar.get_segments_for_date(candidate_date)
+        daylight_list = []
+        if not seg_list:
+            # 理论不会走到，兜底当天零点
+            target_dt = datetime.combine(candidate_date, time.min)
+        else:
+            daylight_list = [(name,s,e) for name,s,e in seg_list if name == "白班"]
+            first_start_hour = daylight_list[0][1] if daylight_list else seg_list[0][1]
+            target_dt = datetime.combine(candidate_date, time(0, 0)) + timedelta(hours=first_start_hour)
 
-        return total_work_hours
+        return self.work_calendar.datetime_to_base_relative_hour(target_dt)
+
+    def load_shift_data_from_db(self, base_date: date, shift_configs: List[dict]) -> WorkCalendar:
+        """
+        从数据库/JSON加载班次配置，生成 WorkCalendar 实例
+        shift_configs 每项格式：
+        {
+            "day_type": "weekly" 或 "special",
+            "weekday": 0~6 (仅 weekly 时有效),
+            "date": "2026-06-22" (仅 special 时有效),
+            "shift_name": "白班",
+            "start": 8.0,
+            "end": 12.0
+        }
+        """
+        weekly_rules = {i: [] for i in range(7)}
+        special_rules = {}
+
+        for item in shift_configs:
+            seg = ShiftSegment(
+                shift_name=item["shift_name"],
+                start_hour=item["start"],
+                end_hour=item["end"]
+            )
+            if item["day_type"] == "weekly":
+                weekday = item["weekday"]
+                weekly_rules.setdefault(weekday, []).append(seg)
+            elif item["day_type"] == "special":
+                dt = date.fromisoformat(item["date"])
+                special_rules.setdefault(dt, []).append(seg)
+
+        self.work_calendar = WorkCalendar(
+            base_date=base_date,
+            weekly_rules=weekly_rules,
+            special_rules=special_rules
+        )
+        return self.work_calendar
+

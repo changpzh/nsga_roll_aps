@@ -1,5 +1,6 @@
+# core/data_structs.py
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional,Tuple
 from datetime import datetime, date
 
 
@@ -119,3 +120,25 @@ class OperationMeta:
                 operator="",
                 lock_reason=""
             )
+
+@dataclass
+class ShiftSegment:
+    """单个班次时间段（允许跨午夜）"""
+    shift_name: str          # 班次名称，如 "白班", "夜班"
+    start_hour: float        # 开始小时（0~24），如 20.0
+    end_hour: float          # 结束小时（0~24），如 1.0 表示次日凌晨1点
+
+    def to_natural_day_segments(self) -> List[Tuple[str, float, float]]:
+        """
+        将可能跨午夜的班次拆解为自然日（0~24）内的段，返回 [(名称, 开始, 结束), ...]
+        例如：夜班 (20.0, 1.0) → [("夜班", 20.0, 24.0), ("夜班", 0.0, 1.0)]
+        """
+        if self.start_hour < self.end_hour:
+            return [(self.shift_name, self.start_hour, self.end_hour)]
+        else:
+            segments = []
+            if self.start_hour < 24.0:
+                segments.append((self.shift_name, self.start_hour, 24.0))
+            if self.end_hour > 0.0:
+                segments.append((self.shift_name, 0.0, self.end_hour))
+            return segments

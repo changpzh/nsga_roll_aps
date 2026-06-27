@@ -11,6 +11,8 @@ from config.settings import (
     WORKER_SWITCH_COST, WIP_WEIGHT_COEFFICIENT, POPULATION_SIZE,
     ROLLING_HISTORY_SEED_RATIO, ROLLING_HEURISTIC_SEED_RATIO, ROLLING_PERTURB_RATE
 )
+
+import time
 from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -558,7 +560,13 @@ def evaluate_population_fitness(population: List[Dict[str, Any]],state_manager: 
     """批量解码种群，返回每个个体的适应度向量。"""
     fitness_list = []
     for chrom in population:
+        # fit_value, _ = decode_chromosome(chrom, state_manager)
+        # fitness_list.append(fit_value)
+
+        start = time.perf_counter()
         fit_value, _ = decode_chromosome(chrom, state_manager)
+        cost = time.perf_counter() - start
+        print(f"单条解码耗时:{cost:.4f}s")
         fitness_list.append(fit_value)
     return fitness_list
 
@@ -583,12 +591,14 @@ def _validate_chromosome_input(chromosome: Dict[str, Any], state_manager: Any) -
 def _initialize_tracking_structures(state_manager: Any) -> SchedulingTrackers:
     """根据生产状态初始化所有跟踪数据结构"""
     trackers = SchedulingTrackers()
+    current_time = state_manager.current_system_time
+
 
     for resource_group in state_manager.resource_group_dict.values():
         # 初始化机器
         for machine_id in resource_group.machine_id_list:
             typed_machine_id = MachineId(machine_id)
-            trackers.machine_last_end_time_dict[typed_machine_id] = 0.0
+            trackers.machine_last_end_time_dict[typed_machine_id] = current_time
             trackers.machine_previous_technology_type_dict[typed_machine_id] = -1
             # 单台机器总可用工时,初始化时均为0
             trackers.machine_total_available_hour[typed_machine_id] = 0.0
@@ -599,6 +609,7 @@ def _initialize_tracking_structures(state_manager: Any) -> SchedulingTrackers:
             typed_worker_id = WorkerId(worker_id)
             trackers.worker_task_intervals_dict[typed_worker_id] = []
             trackers.worker_task_ends_heap_dict[typed_worker_id] = []
+            heapq.heappush(trackers.worker_task_ends_heap_dict[typed_worker_id], current_time)
 
     return trackers
 
@@ -894,14 +905,19 @@ def _compute_fitness_vector(
     # ===================== fit3: 设备整体闲置率 =====================
     total_all_available_time = 0.0
     total_all_idle_time = 0.0
+    current_time = state_manager.current_system_time
+
     for mid in trackers.machine_last_end_time_dict.keys():
         # 跳过虚拟设备（无设备工序）
         if mid == MachineId(-1):
             continue
         proc_h = trackers.machine_total_process_hour[mid]
-        machine_available_h = state_manager.get_schedule_total_work_hours_horizon(makespan,
-                                                                                  state_manager.machine_meta_dict[
-                                                                                      mid].planned_daily_hour)
+
+        machine_available_h = state_manager.get_work_hours_between_relative_hour(
+            start_time=current_time,
+            end_time=makespan
+        )
+
         idle_h = max(0.0, machine_available_h - proc_h)
         total_all_available_time += machine_available_h
         total_all_idle_time += idle_h

@@ -1,3 +1,5 @@
+# config/settings.py
+
 # 屏蔽调试matplotlib兼容报错
 import os
 os.environ["PYDEVD_DISABLE_MATPLOTLIB_SUPPORT"] = "1"
@@ -68,8 +70,6 @@ CONTRACT_OVERDUE_COEFFICIENT = 4.5
 DELIVERY_OVERDUE_COEFFICIENT = 4.5
 PLAN_FROZEN_HORIZON = 48.0 # 表示两天
 
-# 特殊日期映射：key=日期, value=True=上班 False=休息（覆盖周规则）
-DATE_WORK_MAP = {date.fromisoformat("2026-06-19"): False, date.fromisoformat("2026-06-27"): True}
 
 # ===================== 日志全局配置（新增） =====================
 LOG_CONFIG = {
@@ -93,3 +93,19 @@ LOG_CONFIG = {
     },
     "date_format": "%Y-%m-%d %H:%M:%S"
 }
+
+# ===================== 工作日历班次数据源配置 =====================
+# 班次配置加载方式：'json_file' 或 'database'
+SHIFT_DATA_SOURCE = 'json_file'  # 可选 'json_file' | 'database'
+
+# JSON 文件路径（当 SHIFT_DATA_SOURCE = 'json_file' 时生效）
+SHIFT_CONFIG_FILE = PROJECT_ROOT / "config" / "shift_config.json"
+
+# 数据库表名（当 SHIFT_DATA_SOURCE = 'database' 时生效）
+SHIFT_CONFIG_TABLE = "shift_config"
+
+# 基准日期（项目投产首日，启动时固定，滚动排程中不可更改）
+BASE_DATE = date(2026, 6, 22)  # 根据实际投产日期修改
+
+# 每日班次切换时间点
+DAY_SHIFT_THRESHOLD = 8.0
