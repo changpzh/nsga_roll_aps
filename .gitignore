@@ -10,6 +10,7 @@ __pycache__/
 *.xlsx
 *.csv
 *.png
+logs/
 # IDE配置文件夹
 .idea/
 .vscode/
