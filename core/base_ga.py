@@ -224,40 +224,72 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
 
 
 def decode_chromosome(chromosome: Dict[str, Any], state_manager: ProductionStateManager) -> Tuple[List[float], List[dict]]:
+    """
+    通用多目标排程染色体解码函数
+    输入：染色体（操作序列+资源分配）、生产状态管理器、配置参数
+    输出：多维适应度向量 + 详细排程结果列表
+    支持批量拆分：若工序数量超过设备容量，自动均摊拆分为多个子批次
+    """
+    # --------------------------
+    # 1. 输入合法性验证
+    # --------------------------
     _validate_chromosome_input(chromosome, state_manager)
 
     operation_sequence = chromosome["op_sequence"]
     resource_assignment = chromosome["resource_assign"]
+
+    # ===== 去重 + 裁剪超长 =====
     operation_sequence, resource_assignment = deduplicate_sequence(operation_sequence, resource_assignment)
 
+    # --------------------------
+    # 2. 初始化全局状态（只调用一次）
+    # --------------------------
     trackers = _initialize_tracking_structures(state_manager)
     schedule_detail = []
 
+    # --------------------------
+    # 3. 逐操作解码核心流程
+    # --------------------------
     for idx, operation_id in enumerate(operation_sequence):
+        # 步骤1：获取并验证资源分配
         res = resource_assignment[idx]
         if res is None:
+            # 兜底：随机分配可用资源
             rg = state_manager.get_resource_group_by_op(operation_id)
             avail_machines = state_manager.get_available_machines(rg.machine_id_list)
             avail_workers = state_manager.get_available_workers(rg.worker_id_list)
-            if not avail_machines or not avail_workers:
+            if not avail_machines and not avail_workers:
                 raise ValueError(f"工序{operation_id}无可用资源")
             raw_machine_id, raw_worker_id = _random_resource(avail_machines, avail_workers)
-            logger.warning(f"工序{operation_id}资源为None，兜底分配")
         else:
             raw_machine_id, raw_worker_id = res
-            raw_machine_id = int(raw_machine_id)
-            raw_worker_id = int(raw_worker_id)
 
-        raw_machine_id = MachineId(raw_machine_id)
-        raw_worker_id = WorkerId(raw_worker_id)
+        # 统一转为 NewType
+        machine_id = MachineId(int(raw_machine_id))
+        worker_id = WorkerId(int(raw_worker_id))
 
-        machine_id, worker_id = _apply_manual_locks(operation_id, raw_machine_id, raw_worker_id, trackers, state_manager)
-        machine_id, worker_id = _ensure_valid_resource(operation_id, machine_id, worker_id, trackers, state_manager)
+        # 步骤2：应用手动锁定规则
+        machine_id, worker_id = _apply_manual_locks(
+            operation_id, machine_id, worker_id, trackers, state_manager
+        )
 
-        scheduling_result = _schedule_single_operation(operation_id, machine_id, worker_id, trackers, state_manager, cfg)
-        _update_trackers(scheduling_result, trackers)
-        schedule_detail.append(_build_schedule_record(scheduling_result, state_manager))
+        # 步骤3：确保资源有效（处理-1和不可用资源）
+        machine_id, worker_id = _ensure_valid_resource(
+            operation_id, machine_id, worker_id, trackers, state_manager
+        )
 
+        # 步骤4：执行单操作调度计算（返回列表，支持批量拆分）
+        batch_results = _schedule_single_operation(
+            operation_id, machine_id, worker_id, trackers, state_manager, cfg
+        )
+
+        # 步骤5：将子批次结果加入排程记录
+        for batch_res in batch_results:
+            schedule_detail.append(_build_schedule_record(batch_res, state_manager))
+
+    # --------------------------
+    # 4. 计算最终适应度向量
+    # --------------------------
     fitness_vector = _compute_fitness_vector(trackers, state_manager, cfg)
     return fitness_vector, schedule_detail
 
@@ -455,20 +487,36 @@ def _ensure_valid_resource(operation_id, machine_id, worker_id, trackers, state_
     return machine_id, worker_id
 
 
-def _schedule_single_operation(operation_id, machine_id, worker_id, trackers, state_manager, config):
+def _schedule_single_operation(
+        operation_id: int,
+        machine_id: MachineId,
+        worker_id: WorkerId,
+        trackers: SchedulingTrackers,
+        state_manager: Any,
+        config: Dict[str, Any]
+) -> List[OperationSchedulingResult]:
+    """
+    单个操作的调度计算核心，支持批量拆分。
+    返回一个或多个 OperationSchedulingResult（按子批顺序）。
+    """
     operation_metadata = state_manager.op_meta_dict[operation_id]
     job_id = operation_metadata.belong_job_id
     technology_type = operation_metadata.op_tech_type
     rg = state_manager.get_resource_group_by_op(operation_id)
 
+    # --------------------------
+    # 1. 计算实际加工时间（速度系数）
+    # --------------------------
     base_processing_time = operation_metadata.process_time
     speed_ratio = 1.0
     if worker_id != WorkerId(-1) and rg.worker_id_list:
         worker_meta = state_manager.worker_meta_dict.get(worker_id)
         if worker_meta and technology_type in worker_meta.tech_speed_ratio:
             speed_ratio = worker_meta.tech_speed_ratio[technology_type]
-    actual_processing_time = round(base_processing_time * speed_ratio, 1)
 
+    # --------------------------
+    # 2. 计算理想最早开始时间（基础约束）
+    # --------------------------
     machine_available_time = state_manager.current_system_time
     if machine_id != MachineId(-1) and rg.machine_id_list:
         machine_available_time = trackers.machine_last_end_time_dict[machine_id]
@@ -478,6 +526,7 @@ def _schedule_single_operation(operation_id, machine_id, worker_id, trackers, st
     if material_ready_time is None or material_ready_time == datetime.min:
         material_ready_time = state_manager.current_system_time
 
+    # 工艺前驱约束
     current_biz_no = int(operation_metadata.business_op_no)
     all_job_ops = [oid for oid, meta in state_manager.op_meta_dict.items() if meta.belong_job_id == job_id]
     op_no_map = {int(state_manager.op_meta_dict[oid].business_op_no): oid for oid in all_job_ops}
@@ -492,6 +541,9 @@ def _schedule_single_operation(operation_id, machine_id, worker_id, trackers, st
 
     ideal_start_time = max(machine_available_time, job_available_time, material_ready_time)
 
+    # --------------------------
+    # 3. 工人并行约束（仅当需要工人时）
+    # --------------------------
     if worker_id != WorkerId(-1) and rg.worker_id_list:
         max_parallel = rg.worker_max_parallel
         heap = trackers.worker_task_ends_heap_dict[worker_id]
@@ -500,6 +552,9 @@ def _schedule_single_operation(operation_id, machine_id, worker_id, trackers, st
         if len(heap) >= max_parallel:
             ideal_start_time = max(ideal_start_time, heap[0])
 
+    # --------------------------
+    # 4. 机器换型时间
+    # --------------------------
     if machine_id != MachineId(-1) and rg.machine_id_list:
         previous_tech = trackers.machine_previous_technology_type_dict[machine_id]
         if previous_tech != -1 and previous_tech != technology_type:
@@ -510,26 +565,54 @@ def _schedule_single_operation(operation_id, machine_id, worker_id, trackers, st
             ideal_start_time = max(ideal_start_time, changeover_end)
         trackers.machine_previous_technology_type_dict[machine_id] = technology_type
 
-    actual_start_time = state_manager.get_valid_start_time(ideal_start_time)
-    actual_end_time = state_manager.calculate_actual_work_end_time(actual_start_time, actual_processing_time)
+    # --------------------------
+    # 5. 班次日历约束（第一个子批开始时间）
+    # --------------------------
+    first_batch_start = state_manager.get_valid_start_time(ideal_start_time)
 
+    # --------------------------
+    # 6. 计算拆分批次
+    # --------------------------
+    total_qty = operation_metadata.op_quantity
+    machine_meta = state_manager.machine_meta_dict.get(machine_id)
+    capacity = get_actual_batch_capacity(machine_meta, operation_metadata)
+    batch_sizes = split_into_batches(total_qty, capacity)
+
+    # --------------------------
+    # 7. 逐批次计算时间
+    # --------------------------
     frozen_time_limit = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
-    is_frozen = actual_start_time < frozen_time_limit
+    results = []
+    current_start = first_batch_start
 
-    return OperationSchedulingResult(
-        operation_id=OperationId(operation_id),
-        job_id=JobId(str(job_id)),
-        operation_index_in_job=operation_metadata.op_index_in_job,
-        machine_id=machine_id,
-        worker_id=worker_id,
-        start_time=actual_start_time,
-        end_time=actual_end_time,
-        actual_processing_time=actual_processing_time,
-        technology_type=technology_type,
-        is_frozen=is_frozen,
-        is_manual_locked=state_manager.is_op_manual_locked(operation_id),
-        operation_metadata=operation_metadata
-    )
+    for batch_idx, batch_qty in enumerate(batch_sizes):
+        batch_process_time = round(base_processing_time * batch_qty * speed_ratio, 1)
+        batch_end = state_manager.calculate_actual_work_end_time(current_start, batch_process_time)
+        is_frozen = current_start < frozen_time_limit
+
+        batch_result = OperationSchedulingResult(
+            operation_id=OperationId(operation_id),
+            job_id=JobId(str(job_id)),
+            operation_index_in_job=operation_metadata.op_index_in_job,
+            machine_id=machine_id,
+            worker_id=worker_id,
+            start_time=current_start,
+            end_time=batch_end,
+            actual_processing_time=batch_process_time,
+            technology_type=technology_type,
+            is_frozen=is_frozen,
+            is_manual_locked=state_manager.is_op_manual_locked(operation_id),
+            operation_metadata=operation_metadata,
+            batch_index=batch_idx,
+            batch_total=len(batch_sizes)
+        )
+        results.append(batch_result)
+
+        # 更新跟踪器，为下一子批准备
+        _update_trackers(batch_result, trackers)
+        current_start = batch_end
+
+    return results
 
 
 def _update_trackers(result: OperationSchedulingResult, trackers: SchedulingTrackers) -> None:
@@ -580,6 +663,8 @@ def _build_schedule_record(result: OperationSchedulingResult, state_manager: Any
         "end_time": result.end_time,
         "real_start_time": result.start_time.isoformat(),
         "real_end_time": result.end_time.isoformat(),
+        "batch_index": result.batch_index,
+        "batch_total": result.batch_total,
         "tech_type": result.technology_type,
         "real_process_time": result.actual_processing_time,
         "is_frozen": result.is_frozen,
@@ -845,6 +930,22 @@ def deduplicate_op_list(op_list):
 
 
 def _random_resource(machines, workers):
-    machine_id = int(np.random.choice(machines)) if machines else -1
-    worker_id = int(np.random.choice(workers)) if workers else -1
+    machine_id = MachineId(int(np.random.choice(machines))) if machines else MachineId(-1)
+    worker_id = WorkerId(int(np.random.choice(workers))) if workers else WorkerId(-1)
     return machine_id, worker_id
+
+def get_actual_batch_capacity(machine_meta, operation_meta) -> int:
+    """计算该零件在指定设备上的单批最大容量"""
+    if machine_meta is None or machine_meta.standard_capacity <= 0:
+        return operation_meta.op_quantity  # 不限容量
+    return max(1, int(machine_meta.standard_capacity * operation_meta.size_factor))
+
+
+def split_into_batches(total_qty: int, batch_capacity: int) -> List[int]:
+    """均摊拆分，保证每批 ≤ batch_capacity"""
+    if batch_capacity <= 0 or total_qty <= batch_capacity:
+        return [total_qty]
+    num_batches = (total_qty + batch_capacity - 1) // batch_capacity
+    base = total_qty // num_batches
+    remainder = total_qty % num_batches
+    return [base + (1 if i < remainder else 0) for i in range(num_batches)]

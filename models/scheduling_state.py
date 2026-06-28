@@ -59,3 +59,5 @@ class OperationSchedulingResult:
     is_frozen: bool = False
     is_manual_locked: bool = False
     operation_metadata: Optional[Any] = None
+    batch_index: int = 0  # 子批序号（从0开始）
+    batch_total: int = 1  # 该工序总批次数

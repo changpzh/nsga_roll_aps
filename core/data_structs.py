@@ -28,7 +28,7 @@ class MachineMeta:
     available: bool
     planned_daily_hour: float
     changeover_time_map: dict
-
+    standard_capacity: int = 0    # 标准容量（基准件数），0=不限
 
 @dataclass
 class JobMeta:
@@ -105,12 +105,15 @@ class OperationMeta:
     belong_job_id: str
     resource_group_id: int
     resource_group_name: str
-    process_time: float
+    process_time: float  # 单件加工时间（小时）
     op_index_in_job: int
-    op_quantity: int
+    op_quantity: int  # 总数量
     material_ready_time: datetime = None
     op_tech_type: int = 0
     op_lock_info: Optional[ManualLockAssign] = None
+    size_factor: float = 1.0  # 尺寸系数
+    min_batch_size: int = 0  # 最小经济批量（暂用均摊法，保留）
+    mergeable: bool = False  # 是否允许跨订单合并
 
     def __post_init__(self):
         if self.material_ready_time is None:
@@ -125,6 +128,8 @@ class OperationMeta:
                 operator="",
                 lock_reason=""
             )
+
+
 
 
 @dataclass

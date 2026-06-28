@@ -66,9 +66,6 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
     3. 最后获取最后一代种群的帕累托解集
     4. 保留历史解
     """
-    # 新增调试代码
-    print("所有工序状态:", state_manager.operation_status_dict)
-    print("OP_STATUS_OPTIMIZABLE的值:", cfg.OP_STATUS_OPTIMIZABLE)
 
     # -------------------------- 1. 读取全局算法超参 --------------------------
     population_size = POPULATION_SIZE        # 种群总规模

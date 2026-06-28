@@ -179,7 +179,10 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
                 op_quantity=op_item.get("op_quantity", 1),
                 material_ready_time=material_ready_dt,
                 op_tech_type=op_item.get("op_tech_type", 0),
-                op_lock_info=lock_obj
+                op_lock_info=lock_obj,
+                size_factor=op_item.get("size_factor", 1.0),
+                min_batch_size=op_item.get("min_batch_size", 0),
+                mergeable=op_item.get("mergeable", False)
             )
             sm.op_meta_dict[global_op_id] = op_meta
             sm.operation_id_to_job_id[global_op_id] = jid
@@ -265,7 +268,8 @@ def build_production_data_from_dict(state_manager: ProductionStateManager, data:
             sm.machine_meta_dict[mid] = MachineMeta(
                 machine_id=mid, available=m_info["available"],
                 planned_daily_hour=m_info.get("planned_daily_hour", 12.0),
-                changeover_time_map=change_map
+                changeover_time_map=change_map,
+                standard_capacity=m_info.get("standard_capacity", 0)
             )
 
     for wid_str, w_info in data.get("worker_dict", {}).items():

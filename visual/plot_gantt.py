@@ -1,3 +1,4 @@
+# visual/plot_gantt.py
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
@@ -52,9 +53,9 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
 
         for _, row in machine_data.iterrows():
             job_id = row["job_id"]
-            start = row["start_time"]      # datetime
-            end = row["end_time"]          # datetime
-            duration = end - start         # timedelta
+            start = row["start_time"]  # datetime
+            end = row["end_time"]  # datetime
+            duration = end - start  # timedelta
             is_frozen = row["is_frozen"]
             is_manual_locked = row["is_manual_locked"]
             rect_color = job_color_map[job_id]
@@ -70,10 +71,16 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
                     color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
             text_x = start + duration / 2
 
+            # 基础标签
             if 'business_op_no' in row and 'op_name' in row:
                 label_text = f"J{row['job_id']}-{row['business_op_no']}\n{row['op_name']}"
             else:
                 label_text = f"J{row['job_id']}-OP{row['op_id']}"
+
+            # 批次信息（若拆分）
+            if row.get('batch_total', 1) > 1:
+                label_text += f"\n[批{row['batch_index'] + 1}/{row['batch_total']}]"
+
             ax.text(x=text_x, y=y_idx, s=label_text, ha="center", va="center", fontsize=8, color="black",
                     fontweight="bold")
 
@@ -141,9 +148,9 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
 
         for _, row in worker_data.iterrows():
             job_id = row["job_id"]
-            start = row["start_time"]      # datetime
-            end = row["end_time"]          # datetime
-            duration = end - start         # timedelta
+            start = row["start_time"]  # datetime
+            end = row["end_time"]  # datetime
+            duration = end - start  # timedelta
             is_frozen = row["is_frozen"]
             is_manual_locked = row["is_manual_locked"]
             rect_color = job_color_map[job_id]
@@ -159,10 +166,16 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
                     color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
             text_x = start + duration / 2
 
+            # 基础标签
             if 'business_op_no' in row:
                 label_text = f"J{row['job_id']}-{row['business_op_no']}\nM{row['machine_id']}"
             else:
                 label_text = f"J{row['job_id']}\nM{row['machine_id']}"
+
+            # 批次信息
+            if row.get('batch_total', 1) > 1:
+                label_text += f"\n[批{row['batch_index'] + 1}/{row['batch_total']}]"
+
             ax.text(x=text_x, y=y_idx, s=label_text, ha="center", va="center", fontsize=8, color="black",
                     fontweight="bold")
 
@@ -208,38 +221,43 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
     if df.empty:
         print("没有可显示的工序数据")
         return
+
+    # 按订单和工序号排序（包含批次）
     df["biz_no_int"] = df["business_op_no"].astype(int)
-    df = df.sort_values(["job_id", "biz_no_int"], ascending=[True, True])
-    unique_ops = df["op_id"].tolist()
+    df = df.sort_values(["job_id", "biz_no_int", "batch_index"], ascending=[True, True, True])
+
+    # 每一行是一个独立的子批次，直接遍历所有行
+    all_rows = list(df.iterrows())
     colors = plt.cm.tab20.colors
     job_color_map = {}
     unique_jobs = df["job_id"].unique()
     for idx, jid in enumerate(unique_jobs):
         job_color_map[jid] = colors[idx % len(colors)]
 
-    canvas_height = max(10, len(unique_ops) * 0.6)
+    canvas_height = max(10, len(all_rows) * 0.6)
     total_duration = (df["end_time"].max() - df["start_time"].min()).total_seconds() / 3600
     canvas_width = max(20, total_duration / 8)
     fig, ax = plt.subplots(figsize=(canvas_width, canvas_height))
     y_tick_labels = []
 
-    for y_idx, op_id in enumerate(unique_ops):
-        op_data = df[df["op_id"] == op_id].iloc[0]
-        start = op_data["start_time"]      # datetime
-        end = op_data["end_time"]          # datetime
-        duration = end - start             # timedelta
+    for y_idx, (_, op_data) in enumerate(all_rows):
+        start = op_data["start_time"]
+        end = op_data["end_time"]
+        duration = end - start
         job_id = op_data["job_id"]
         mid = op_data["machine_id"]
         wid = op_data["worker_id"]
-        job_inner_idx = op_data["job_op_index"]
         is_frozen = op_data["is_frozen"]
         is_manual_locked = op_data["is_manual_locked"]
         rect_color = job_color_map[job_id]
 
-        if 'business_op_no' in op_data and 'op_name' in op_data:
+        # y轴标签：订单-工序号，若有批次则追加批次信息
+        if 'business_op_no' in op_data:
             tick_text = f"订单{job_id}-{op_data['business_op_no']}"
         else:
-            tick_text = f"订单{job_id} · 第{job_inner_idx + 1}道"
+            tick_text = f"订单{job_id} · 第{op_data['job_op_index'] + 1}道"
+        if op_data.get('batch_total', 1) > 1:
+            tick_text += f" [批{op_data['batch_index'] + 1}/{op_data['batch_total']}]"
         y_tick_labels.append(tick_text)
 
         if is_manual_locked:
@@ -263,7 +281,7 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
         ax.text(start, y_idx + 0.25, start_label, ha="right", va="bottom", fontsize=7)
         ax.text(end, y_idx - 0.25, end_label, ha="left", va="top", fontsize=7)
 
-    ax.set_yticks(range(len(unique_ops)))
+    ax.set_yticks(range(len(all_rows)))
     ax.set_yticklabels(y_tick_labels, fontsize=8.5)
 
     ax.set_xlim(left=current_time)

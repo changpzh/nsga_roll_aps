@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 if __name__ == "__main__":
     np.random.seed(60)
     sm = ProductionStateManager()
-    all_job_op_map = build_test_production_data(sm, "test_data3.json")
+    all_job_op_map = build_test_production_data(sm, "test_data31.json")
     all_job_ids = list(all_job_op_map.keys())
     trigger = RollingScheduleTrigger(sm)
 
@@ -49,8 +49,8 @@ if __name__ == "__main__":
     _, schedule_detail = base_ga.decode_chromosome(best_chrom, sm)
     sm.cache_schedule_result(schedule_detail)
 
-    print(f"\n【排产明细前10条】")
-    for item in schedule_detail[:10]:
+    print(f"\n【排产明细】")
+    for item in schedule_detail:
         print(
             f"工序{item['op_id']:2d} | 订单{item['job_id']}-{item['business_op_no']:2s} | "
             f"机床{item['machine_id']:d} 工人{item['worker_id']:d} | "
