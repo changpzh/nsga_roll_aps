@@ -1,9 +1,100 @@
 {
-  "calendar_config": {
-    "base_date": "2026-06-15",
-    "default_daily_work_start": 8.0,
-    "default_daily_work_end": 20.0,
-    "week_work_rule": [0, 1, 2, 3, 4]
+  "base_date": "2026-06-22",
+  "weekly_shifts": {
+    "0": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "09:00", "end": "12:00"},
+          {"start": "14:00", "end": "18:00"}
+        ]
+      },
+      {
+        "name": "夜班",
+        "segments": [
+          {"start": "20:00", "end": "00:00"},
+          {"start": "04:00", "end": "08:00"}
+        ]
+      }
+    ],
+    "1": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "09:00", "end": "12:00"},
+          {"start": "14:00", "end": "18:00"}
+        ]
+      },
+      {
+        "name": "夜班",
+        "segments": [
+          {"start": "20:00", "end": "00:00"},
+          {"start": "04:00", "end": "08:00"}
+        ]
+      }
+    ],
+    "2": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "09:00", "end": "12:00"},
+          {"start": "14:00", "end": "18:00"}
+        ]
+      },
+      {
+        "name": "夜班",
+        "segments": [
+          {"start": "20:00", "end": "00:00"},
+          {"start": "04:00", "end": "08:00"}
+        ]
+      }
+    ],
+    "3": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "09:00", "end": "12:00"},
+          {"start": "14:00", "end": "18:00"}
+        ]
+      },
+      {
+        "name": "夜班",
+        "segments": [
+          {"start": "20:00", "end": "00:00"},
+          {"start": "04:00", "end": "08:00"}
+        ]
+      }
+    ],
+    "4": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "09:00", "end": "12:00"},
+          {"start": "14:00", "end": "18:00"}
+        ]
+      },
+      {
+        "name": "夜班",
+        "segments": [
+          {"start": "20:00", "end": "00:00"},
+          {"start": "04:00", "end": "08:00"}
+        ]
+      }
+    ],
+    "5": [],
+    "6": []
+  },
+  "special_shifts": {
+    "2026-06-20": [
+      {
+        "name": "白班",
+        "segments": [
+          {"start": "08:00", "end": "12:00"},
+          {"start": "13:00", "end": "17:00"}
+        ]
+      }
+    ],
+    "2026-06-22": []
   },
   "resource_groups": [
     {
@@ -35,28 +126,22 @@
   },
   "machine_dict": {
     "0": {
-      "available": true,
-      "planned_daily_hour": 12.0
+      "available": true
     },
     "1": {
-      "available": true,
-      "planned_daily_hour": 12.0
+      "available": true
     },
     "2": {
-      "available": true,
-      "planned_daily_hour": 12.0
+      "available": true
     },
     "3": {
-      "available": true,
-      "planned_daily_hour": 10.0
+      "available": true
     },
     "4": {
-      "available": true,
-      "planned_daily_hour": 20.0
+      "available": true
     },
     "5": {
-      "available": true,
-      "planned_daily_hour": 12.0
+      "available": true
     }
   },
   "worker_dict": {

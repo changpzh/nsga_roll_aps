@@ -1,7 +1,8 @@
-# core/data_structs.py
 from dataclasses import dataclass
-from typing import Dict, List, Optional,Tuple
-from datetime import datetime, date
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime, date, time
+
+from models.base_types import MachineId, WorkerId, JobId, OperationId
 
 
 @dataclass
@@ -20,6 +21,7 @@ class ResourceGroup:
     worker_id_list: List[int]
     worker_max_parallel: int = 2
 
+
 @dataclass
 class MachineMeta:
     machine_id: int
@@ -30,7 +32,7 @@ class MachineMeta:
 
 @dataclass
 class JobMeta:
-    job_id: int
+    job_id: str
     op_id_list: List[int]
     priority: str
     due_warn_time: float
@@ -38,7 +40,8 @@ class JobMeta:
     base_weight: float
     quantity: int
     due_delivery_date: date
-    due_delivery_time: float
+    due_delivery_time: datetime
+
 
 @dataclass
 class ManualLockAssign:
@@ -99,17 +102,19 @@ class OperationMeta:
     business_op_no: str
     op_name: str
     op_content: str
-    belong_job_id: int
+    belong_job_id: str
     resource_group_id: int
     resource_group_name: str
     process_time: float
     op_index_in_job: int
     op_quantity: int
-    material_ready_time: float = 0.0
+    material_ready_time: datetime = None
     op_tech_type: int = 0
     op_lock_info: Optional[ManualLockAssign] = None
 
     def __post_init__(self):
+        if self.material_ready_time is None:
+            self.material_ready_time = datetime.min
         if self.op_lock_info is None:
             self.op_lock_info = ManualLockAssign(
                 op_global_id=self.op_global_id,
@@ -121,24 +126,16 @@ class OperationMeta:
                 lock_reason=""
             )
 
+
 @dataclass
 class ShiftSegment:
-    """单个班次时间段（允许跨午夜）"""
-    shift_name: str          # 班次名称，如 "白班", "夜班"
-    start_hour: float        # 开始小时（0~24），如 20.0
-    end_hour: float          # 结束小时（0~24），如 1.0 表示次日凌晨1点
+    """单个工作时间段"""
+    start: time
+    end: time
 
-    def to_natural_day_segments(self) -> List[Tuple[str, float, float]]:
-        """
-        将可能跨午夜的班次拆解为自然日（0~24）内的段，返回 [(名称, 开始, 结束), ...]
-        例如：夜班 (20.0, 1.0) → [("夜班", 20.0, 24.0), ("夜班", 0.0, 1.0)]
-        """
-        if self.start_hour < self.end_hour:
-            return [(self.shift_name, self.start_hour, self.end_hour)]
-        else:
-            segments = []
-            if self.start_hour < 24.0:
-                segments.append((self.shift_name, self.start_hour, 24.0))
-            if self.end_hour > 0.0:
-                segments.append((self.shift_name, 0.0, self.end_hour))
-            return segments
+
+@dataclass
+class Shift:
+    """一个班次，包含多个工作时间段"""
+    name: str
+    segments: Tuple[ShiftSegment, ...]

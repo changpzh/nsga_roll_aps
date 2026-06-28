@@ -21,10 +21,5 @@ if __name__ == "__main__":
     sm = ProductionStateManager()
     trigger = RollingScheduleTrigger(sm)
 
-    import time
 
-    start = time.perf_counter()
-    fit_value, _ = base_ga.decode_chromosome(chrom, state_manager)
-    cost = time.perf_counter() - start
-    print(f"单条解码耗时:{cost:.4f}s")
 

@@ -1,14 +1,15 @@
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List
 import warnings
+from datetime import datetime
 from core.state_manager import ProductionStateManager
 
 
 def plot_pareto_front(pareto_fits: List[List[float]]):
-    makespan_list = [fit[2] for fit in pareto_fits]  # ✅ 修正：fit[2]才是总工期
-    overdue_list = [fit[1] for fit in pareto_fits]  # ✅ 修正：fit[1]是逾期惩罚
+    makespan_list = [fit[2] for fit in pareto_fits]
+    overdue_list = [fit[1] for fit in pareto_fits]
     plt.figure(figsize=(10, 6))
     plt.scatter(makespan_list, overdue_list, c="#2E86AB", s=45, alpha=0.7, label="帕累托最优解")
     plt.xlabel("最大完工时间（小时）")
@@ -22,8 +23,9 @@ def plot_pareto_front(pareto_fits: List[List[float]]):
 def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionStateManager):
     df = pd.DataFrame(schedule_detail)
 
-    # ✅ 修复1：过滤无设备工序和已经完工的工序
-    current_time = state_manager.current_system_time
+    current_time = state_manager.current_system_time  # datetime
+
+    # 过滤无设备工序和已完工工序
     df = df[(df["machine_id"] != -1) & (df["start_time"] >= current_time)]
 
     if df.empty:
@@ -39,12 +41,10 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
         job_color_map[jid] = colors[idx % len(colors)]
 
     canvas_height = max(8, len(unique_machines) * 1.2)
-    total_duration = df["end_time"].max() - df["start_time"].min()
+    total_duration = (df["end_time"].max() - df["start_time"].min()).total_seconds() / 3600  # timedelta → 小时
     canvas_width = max(20, total_duration / 8)
     fig, ax = plt.subplots(figsize=(canvas_width, canvas_height))
     y_tick_labels = []
-
-    has_real_date = state_manager.work_calendar is not None and hasattr(state_manager.work_calendar, 'base_date')
 
     for y_idx, mid in enumerate(unique_machines):
         machine_data = df[df["machine_id"] == mid]
@@ -52,9 +52,9 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
 
         for _, row in machine_data.iterrows():
             job_id = row["job_id"]
-            start = row["start_time"]
-            end = row["end_time"]
-            duration = end - start
+            start = row["start_time"]      # datetime
+            end = row["end_time"]          # datetime
+            duration = end - start         # timedelta
             is_frozen = row["is_frozen"]
             is_manual_locked = row["is_manual_locked"]
             rect_color = job_color_map[job_id]
@@ -66,17 +66,9 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
             else:
                 hatch_style = ""
 
-            if has_real_date:
-                real_start = state_manager.relative_hour_from_base_to_real_datetime(start)
-                real_end = state_manager.relative_hour_from_base_to_real_datetime(end)
-                real_duration = real_end - real_start
-                ax.barh(y=y_idx, width=real_duration, left=real_start,
-                        color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
-                text_x = real_start + real_duration / 2
-            else:
-                ax.barh(y=y_idx, width=duration, left=start,
-                        color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
-                text_x = start + duration / 2
+            ax.barh(y=y_idx, width=duration, left=start,
+                    color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
+            text_x = start + duration / 2
 
             if 'business_op_no' in row and 'op_name' in row:
                 label_text = f"J{row['job_id']}-{row['business_op_no']}\n{row['op_name']}"
@@ -85,43 +77,30 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
             ax.text(x=text_x, y=y_idx, s=label_text, ha="center", va="center", fontsize=8, color="black",
                     fontweight="bold")
 
-            if has_real_date:
-                start_label = state_manager.relative_hour_from_base_to_real_datetime(start).strftime("%m-%d %H:%M")
-                end_label = state_manager.relative_hour_from_base_to_real_datetime(end).strftime("%m-%d %H:%M")
-            else:
-                start_label = f"{start:.1f}"
-                end_label = f"{end:.1f}"
-            ax.text(real_start if has_real_date else start - 0.1, y_idx + 0.3, start_label, ha="right", va="bottom",
-                    fontsize=7)
-            ax.text(real_end if has_real_date else end + 0.1, y_idx - 0.3, end_label, ha="left", va="top", fontsize=7)
+            start_label = start.strftime("%m-%d %H:%M")
+            end_label = end.strftime("%m-%d %H:%M")
+            ax.text(start, y_idx + 0.3, start_label, ha="right", va="bottom", fontsize=7)
+            ax.text(end, y_idx - 0.3, end_label, ha="left", va="top", fontsize=7)
 
     ax.set_yticks(range(len(unique_machines)))
     ax.set_yticklabels(y_tick_labels, fontsize=10)
 
-    if has_real_date:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        current_real_time = state_manager.relative_hour_from_base_to_real_datetime(current_time)
-        ax.set_xlim(left=current_real_time)
+    # x轴从当前系统时间开始
+    ax.set_xlim(left=current_time)
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
-        total_days = total_duration / 24
-        if total_days <= 3:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
-        elif total_days <= 7:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
-        else:
-            ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        fig.autofmt_xdate(rotation=45, ha="right")
-        ax.set_xlabel("真实时间轴", fontsize=12)
-        ax.set_title(
-            f"机床排产甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
-            fontsize=14)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    if total_duration <= 72:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+    elif total_duration <= 168:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
     else:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        ax.set_xlim(left=current_time)
-        ax.set_xlabel("相对时间轴（小时）", fontsize=12)
-        ax.set_title("机床排产甘特图\n\\\\=人工锁定 ///=计划冻结", fontsize=14)
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    fig.autofmt_xdate(rotation=45, ha="right")
+    ax.set_xlabel("真实时间轴", fontsize=12)
+    ax.set_title(
+        f"机床排产甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
+        fontsize=14)
 
     ax.set_ylabel("机床编号", fontsize=12)
     ax.grid(axis="x", alpha=0.3)
@@ -134,8 +113,8 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
 def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStateManager):
     df = pd.DataFrame(schedule_detail)
 
-    # ✅ 修复2：过滤无工人工序和已经完工的工序
-    current_time = state_manager.current_system_time
+    current_time = state_manager.current_system_time  # datetime
+
     df = df[(df["worker_id"] != -1) & (df["start_time"] >= current_time)]
 
     if df.empty:
@@ -151,12 +130,10 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
         job_color_map[jid] = colors[idx % len(colors)]
 
     canvas_height = max(8, len(unique_workers) * 1.2)
-    total_duration = df["end_time"].max() - df["start_time"].min()
+    total_duration = (df["end_time"].max() - df["start_time"].min()).total_seconds() / 3600
     canvas_width = max(20, total_duration / 8)
     fig, ax = plt.subplots(figsize=(canvas_width, canvas_height))
     y_tick_labels = []
-
-    has_real_date = state_manager.work_calendar is not None and hasattr(state_manager.work_calendar, 'base_date')
 
     for y_idx, wid in enumerate(unique_workers):
         worker_data = df[df["worker_id"] == wid]
@@ -164,9 +141,9 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
 
         for _, row in worker_data.iterrows():
             job_id = row["job_id"]
-            start = row["start_time"]
-            end = row["end_time"]
-            duration = end - start
+            start = row["start_time"]      # datetime
+            end = row["end_time"]          # datetime
+            duration = end - start         # timedelta
             is_frozen = row["is_frozen"]
             is_manual_locked = row["is_manual_locked"]
             rect_color = job_color_map[job_id]
@@ -178,17 +155,9 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
             else:
                 hatch_style = ""
 
-            if has_real_date:
-                real_start = state_manager.relative_hour_from_base_to_real_datetime(start)
-                real_end = state_manager.relative_hour_from_base_to_real_datetime(end)
-                real_duration = real_end - real_start
-                ax.barh(y=y_idx, width=real_duration, left=real_start,
-                        color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
-                text_x = real_start + real_duration / 2
-            else:
-                ax.barh(y=y_idx, width=duration, left=start,
-                        color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
-                text_x = start + duration / 2
+            ax.barh(y=y_idx, width=duration, left=start,
+                    color=rect_color, edgecolor="black", hatch=hatch_style, height=0.7)
+            text_x = start + duration / 2
 
             if 'business_op_no' in row:
                 label_text = f"J{row['job_id']}-{row['business_op_no']}\nM{row['machine_id']}"
@@ -197,43 +166,29 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
             ax.text(x=text_x, y=y_idx, s=label_text, ha="center", va="center", fontsize=8, color="black",
                     fontweight="bold")
 
-            if has_real_date:
-                start_label = state_manager.relative_hour_from_base_to_real_datetime(start).strftime("%m-%d %H:%M")
-                end_label = state_manager.relative_hour_from_base_to_real_datetime(end).strftime("%m-%d %H:%M")
-            else:
-                start_label = f"{start:.1f}"
-                end_label = f"{end:.1f}"
-            ax.text(real_start if has_real_date else start - 0.1, y_idx + 0.3, start_label, ha="right", va="bottom",
-                    fontsize=7)
-            ax.text(real_end if has_real_date else end + 0.1, y_idx - 0.3, end_label, ha="left", va="top", fontsize=7)
+            start_label = start.strftime("%m-%d %H:%M")
+            end_label = end.strftime("%m-%d %H:%M")
+            ax.text(start, y_idx + 0.3, start_label, ha="right", va="bottom", fontsize=7)
+            ax.text(end, y_idx - 0.3, end_label, ha="left", va="top", fontsize=7)
 
     ax.set_yticks(range(len(unique_workers)))
     ax.set_yticklabels(y_tick_labels, fontsize=10)
 
-    if has_real_date:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        current_real_time = state_manager.relative_hour_from_base_to_real_datetime(current_time)
-        ax.set_xlim(left=current_real_time)
+    ax.set_xlim(left=current_time)
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
-        total_days = total_duration / 24
-        if total_days <= 3:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
-        elif total_days <= 7:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
-        else:
-            ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        fig.autofmt_xdate(rotation=45, ha="right")
-        ax.set_xlabel("真实时间轴", fontsize=12)
-        ax.set_title(
-            f"工人排产甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
-            fontsize=14)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    if total_duration <= 72:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+    elif total_duration <= 168:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
     else:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        ax.set_xlim(left=current_time)
-        ax.set_xlabel("相对时间轴（小时）", fontsize=12)
-        ax.set_title("工人排产甘特图\n\\\\=人工锁定 ///=计划冻结", fontsize=14)
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    fig.autofmt_xdate(rotation=45, ha="right")
+    ax.set_xlabel("真实时间轴", fontsize=12)
+    ax.set_title(
+        f"工人排产甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
+        fontsize=14)
 
     ax.set_ylabel("工人编号", fontsize=12)
     ax.grid(axis="x", alpha=0.3)
@@ -246,15 +201,15 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
 def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionStateManager):
     df = pd.DataFrame(schedule_detail)
 
-    # ✅ 修复3：过滤已经完工的工序
-    current_time = state_manager.current_system_time
+    current_time = state_manager.current_system_time  # datetime
+
     df = df[df["start_time"] >= current_time]
 
     if df.empty:
         print("没有可显示的工序数据")
         return
-
-    df = df.sort_values(["job_id", "business_op_no"], ascending=[True, True])  # ✅ 修正：按业务工序号排序
+    df["biz_no_int"] = df["business_op_no"].astype(int)
+    df = df.sort_values(["job_id", "biz_no_int"], ascending=[True, True])
     unique_ops = df["op_id"].tolist()
     colors = plt.cm.tab20.colors
     job_color_map = {}
@@ -263,18 +218,16 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
         job_color_map[jid] = colors[idx % len(colors)]
 
     canvas_height = max(10, len(unique_ops) * 0.6)
-    total_duration = df["end_time"].max() - df["start_time"].min()
+    total_duration = (df["end_time"].max() - df["start_time"].min()).total_seconds() / 3600
     canvas_width = max(20, total_duration / 8)
     fig, ax = plt.subplots(figsize=(canvas_width, canvas_height))
     y_tick_labels = []
 
-    has_real_date = state_manager.work_calendar is not None and hasattr(state_manager.work_calendar, 'base_date')
-
     for y_idx, op_id in enumerate(unique_ops):
         op_data = df[df["op_id"] == op_id].iloc[0]
-        start = op_data["start_time"]
-        end = op_data["end_time"]
-        duration = end - start
+        start = op_data["start_time"]      # datetime
+        end = op_data["end_time"]          # datetime
+        duration = end - start             # timedelta
         job_id = op_data["job_id"]
         mid = op_data["machine_id"]
         wid = op_data["worker_id"]
@@ -296,61 +249,38 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
         else:
             hatch_style = ""
 
-        if has_real_date:
-            real_start = state_manager.relative_hour_from_base_to_real_datetime(start)
-            real_end = state_manager.relative_hour_from_base_to_real_datetime(end)
-            real_duration = real_end - real_start
-            ax.barh(y=y_idx, width=real_duration, left=real_start,
-                    color=rect_color, edgecolor="black", hatch=hatch_style, height=0.55)
-            text_x = real_start + real_duration / 2
-        else:
-            ax.barh(y=y_idx, width=duration, left=start,
-                    color=rect_color, edgecolor="black", hatch=hatch_style, height=0.55)
-            text_x = start + duration / 2
+        ax.barh(y=y_idx, width=duration, left=start,
+                color=rect_color, edgecolor="black", hatch=hatch_style, height=0.55)
+        text_x = start + duration / 2
 
-        # ✅ 修复4：无资源工序标签显示正确
         machine_label = f"机床{mid}" if mid != -1 else "无设备"
         worker_label = f"工人{wid}" if wid != -1 else "无工人"
         label_text = f"{machine_label}\n{worker_label}"
         ax.text(x=text_x, y=y_idx, s=label_text, ha="center", va="center", fontsize=7, color="black", fontweight="bold")
 
-        if has_real_date:
-            start_label = state_manager.relative_hour_from_base_to_real_datetime(start).strftime("%m-%d %H:%M")
-            end_label = state_manager.relative_hour_from_base_to_real_datetime(end).strftime("%m-%d %H:%M")
-        else:
-            start_label = f"{start:.1f}"
-            end_label = f"{end:.1f}"
-        ax.text(real_start if has_real_date else start - 0.1, y_idx + 0.25, start_label, ha="right", va="bottom",
-                fontsize=7)
-        ax.text(real_end if has_real_date else end + 0.1, y_idx - 0.25, end_label, ha="left", va="top", fontsize=7)
+        start_label = start.strftime("%m-%d %H:%M")
+        end_label = end.strftime("%m-%d %H:%M")
+        ax.text(start, y_idx + 0.25, start_label, ha="right", va="bottom", fontsize=7)
+        ax.text(end, y_idx - 0.25, end_label, ha="left", va="top", fontsize=7)
 
     ax.set_yticks(range(len(unique_ops)))
     ax.set_yticklabels(y_tick_labels, fontsize=8.5)
 
-    if has_real_date:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        current_real_time = state_manager.relative_hour_from_base_to_real_datetime(current_time)
-        ax.set_xlim(left=current_real_time)
+    ax.set_xlim(left=current_time)
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
-        total_days = total_duration / 24
-        if total_days <= 3:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
-        elif total_days <= 7:
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
-        else:
-            ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
-        fig.autofmt_xdate(rotation=45, ha="right")
-        ax.set_xlabel("真实时间轴", fontsize=12)
-        ax.set_title(
-            f"全工序时间轴甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
-            fontsize=14)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    if total_duration <= 72:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+    elif total_duration <= 168:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=8))
     else:
-        # ✅ 修复5：x轴强制从当前系统时间开始
-        ax.set_xlim(left=current_time)
-        ax.set_xlabel("相对时间轴（小时）", fontsize=12)
-        ax.set_title("全工序时间轴甘特图\n\\\\=人工锁定 ///=计划冻结", fontsize=14)
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    fig.autofmt_xdate(rotation=45, ha="right")
+    ax.set_xlabel("真实时间轴", fontsize=12)
+    ax.set_title(
+        f"全工序时间轴甘特图（基准日期：{state_manager.work_calendar.base_date.strftime('%Y-%m-%d')}）\n\\\\=人工锁定 ///=计划冻结",
+        fontsize=14)
 
     ax.set_ylabel("订单及内部工序", fontsize=12)
     ax.grid(axis="x", alpha=0.3)
