@@ -1,9 +1,9 @@
 import numpy as np
 import heapq
 import copy
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any,Deque
 from datetime import datetime, timedelta
-
+from collections import deque
 from models.base_types import MachineId, WorkerId, OperationId, JobId
 from models.scheduling_state import SchedulingTrackers, OperationSchedulingResult
 from core.state_manager import ProductionStateManager
@@ -14,12 +14,47 @@ from config.settings import (
     ROLLING_HISTORY_SEED_RATIO, ROLLING_HEURISTIC_SEED_RATIO, ROLLING_PERTURB_RATE,
     PLAN_FROZEN_HORIZON_HOURS
 )
+from core.multi_criteria_decision import TopsisAllMinEvaluator
 
 import time
 from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+class ConvergenceMonitor:
+    def __init__(
+        self,
+        window_size: int = 10,
+        rel_tol: float = 0.005
+    ):
+        self.window_size = window_size
+        self.rel_tol = rel_tol
+        self.history_window: Deque[List[float]] = deque(maxlen=window_size)
+        self.full_history: List[List[float]] = []
+
+    def add_generation_best(self, fit_vec: List[float]):
+        self.history_window.append(fit_vec.copy())
+        self.full_history.append(fit_vec.copy())
+
+    def is_converged(self) -> bool:
+        if len(self.history_window) < self.window_size:
+            return False
+        arr = np.array(self.history_window)
+        mean_vals = np.mean(arr, axis=0)
+        max_vals = np.max(arr, axis=0)
+        min_vals = np.min(arr, axis=0)
+
+        for idx in range(arr.shape[1]):
+            mean_val = mean_vals[idx]
+            if abs(mean_val) < 1e-9:
+                continue
+            relative_range = (max_vals[idx] - min_vals[idx]) / abs(mean_val)
+            if relative_range > self.rel_tol:
+                return False
+        return True
+
+    def get_history(self) -> List[List[float]]:
+        return self.full_history
 
 def init_single_chromosome(reorder_job_seq: List[int], state_manager: ProductionStateManager, shuffle_free: bool = True) -> dict:
     target_ops = []
@@ -382,15 +417,50 @@ def mutate_chromosome(chrom: dict, state_manager: ProductionStateManager) -> dic
     return new_chrom
 
 
-def select_optimal_solution_by_weight(pareto_set: List[dict], all_pop_fits: List[List[float]], pareto_index_list: List[int], weight: List[float]) -> tuple:
-    score_list = []
-    for idx in pareto_index_list:
-        fit_vec = all_pop_fits[idx]
-        total_score = sum(weight[i] * fit_vec[i] for i in range(len(weight)))
-        score_list.append(total_score)
-    best_in_pareto_idx = np.argmin(score_list)
-    real_pop_idx = pareto_index_list[best_in_pareto_idx]
-    return pareto_set[best_in_pareto_idx], all_pop_fits[real_pop_idx]
+def select_optimal_solution_by_weight(
+    pareto_set: List[dict],
+    all_pop_fits: List[List[float]],
+    pareto_index_list: List[int],
+    weight: List[float],
+    # 新增入参：外部传入已初始化好的TOPSIS对象
+    topsis_evaluator: TopsisAllMinEvaluator
+) -> Tuple[dict, List[float], List[dict], List[List[float]]]:
+    """
+    基于TOPSIS(全指标越小越优)从帕累托解集中选取综合最优方案
+    替换原线性加权求和择优逻辑，调用封装好的TOPSIS evaluate方法完成多准则评价排序
+    :param pareto_set: 帕累托解集，元素为个体字典，顺序与pareto_index_list一一对应
+    :param all_pop_fits: 整个种群所有个体的适应度向量列表，二维结构 [个体下标][各目标函数值]
+    :param pareto_index_list: 帕累托个体在总种群中的下标集合
+    :param weight: 各目标指标评价权重
+    :param topsis_evaluator: 外部提前初始化完成的TOPSIS评价实例，全局复用
+    :return: tuple(
+        最优帕累托个体字典,
+        该个体对应的适应度向量,
+        排序后的帕累托子集列表（排序越靠前TOPSIS名次越好）,
+        排序后帕累托解集对应的适应度二维列表
+    )
+    """
+    pareto_fit_matrix = []
+    for pop_idx in pareto_index_list:
+        fit_vector = all_pop_fits[pop_idx]
+        pareto_fit_matrix.append(fit_vector)
+
+    # 修正：完整接收TOPSIS三个返回值，不需要原始排名列表用 _ 占位丢弃
+    best_subset_idx, sorted_idx_by_rank= topsis_evaluator.evaluate(
+        input_data=pareto_fit_matrix,
+        weight=weight
+    )
+
+    best_real_pop_index = pareto_index_list[best_subset_idx]
+    optimal_chromosome = pareto_set[best_subset_idx]
+    optimal_fit_vector = all_pop_fits[best_real_pop_index]
+
+    # 利用排序下标，生成【按名次从第1名往后排好的帕累托解集】
+    sorted_pareto_list = [pareto_set[idx] for idx in sorted_idx_by_rank]
+    sorted_fit_list = [all_pop_fits[pareto_index_list[idx]] for idx in sorted_idx_by_rank]
+
+    # 四元组返回
+    return optimal_chromosome, optimal_fit_vector, sorted_pareto_list, sorted_fit_list
 
 
 def evaluate_population_fitness(population: List[Dict[str, Any]], state_manager: ProductionStateManager) -> List[List[float]]:
@@ -673,27 +743,44 @@ def _build_schedule_record(result: OperationSchedulingResult, state_manager: Any
 
 
 def _compute_fitness_vector(trackers: SchedulingTrackers, state_manager: Any, config: Dict[str, Any]) -> List[float]:
+    """
+    单条排程方案适应度向量计算函数
+    共7个最小化优化目标，完成工时统计、逾期罚金、设备利用率、负荷均衡、在制品等待成本核算
+    全部时长类指标统一换算为【自然天】口径，抹平原始量级差距，适配NSGA-II寻优与后续TOPSIS择优
+    :param trackers: 排程过程追踪器，存储各工序完工时刻、设备工时、人员工时、在制品时长等中间数据
+    :param state_manager: 全局生产状态管理器，包含订单基础信息、工作日历、逾期罚金计算方法
+    :param config: 配置字典，读取在制品权重系数等全局参数
+    :return: list[float] 7维适应度向量，依次为：
+        [逾期订单数量, 总逾期惩罚成本, 总完工时间(天), 设备闲置率(%), 设备负荷不均衡方差, 人员负荷不均衡方差, 在制品等待总成本]
+    """
+    # ---------------------- 1. 统计逾期订单数量 + 累加总逾期罚金 ----------------------
     overdue_count = 0
     total_overdue_penalty = 0.0
+    # 遍历所有订单最终完工时刻，判断是否超交付期
     for job_id, finish_time in trackers.job_last_operation_end_time_dict.items():
         job_meta = state_manager.job_meta_dict.get(job_id)
         if not job_meta:
             continue
+        # 订单实际完工时间晚于要求交付期，计算单笔逾期罚金并累加
         if finish_time > job_meta.due_delivery_time:
             penalty = state_manager.calc_delivery_overdue_penalty(finish_time, job_meta)
             total_overdue_penalty += penalty
             overdue_count += 1
 
+    # ---------------------- 2. 计算总完工时间Makespan（单位：天） ----------------------
     if trackers.job_last_operation_end_time_dict:
         max_end = max(trackers.job_last_operation_end_time_dict.values())
-        makespan = (max_end - state_manager.work_calendar.base_zero).total_seconds() / 3600.0
+        # 总秒数 ÷3600→小时，再÷24转为自然天
+        makespan = (max_end - state_manager.work_calendar.base_zero).total_seconds() / (3600.0 * 24.0)
     else:
         makespan = 0.0
 
+    # ---------------------- 3. 计算整体设备闲置率（百分比形式） ----------------------
     total_all_available_time = 0.0
     total_all_idle_time = 0.0
     current_time = state_manager.current_system_time
 
+    # 遍历每台有效设备，统计可用总工时、闲置总工时
     for mid in trackers.machine_last_end_time_dict.keys():
         if mid == MachineId(-1):
             continue
@@ -704,33 +791,45 @@ def _compute_fitness_vector(trackers: SchedulingTrackers, state_manager: Any, co
         total_all_available_time += machine_available_h
         total_all_idle_time += idle_h
 
+    # 闲置率 = 总闲置工时 / 总可用工时 * 100，转为百分比，避免0~1小数值量级过小
     if total_all_available_time > 1e-9:
-        overall_equipment_idle_rate = round(total_all_idle_time / total_all_available_time, 3)
+        overall_equipment_idle_rate = round(total_all_idle_time / total_all_available_time * 100, 2)
     else:
         overall_equipment_idle_rate = 0.0
 
+    # ---------------------- 4. 设备负荷不均衡方差（工时转天计算） ----------------------
     machine_total_loads = []
     for mid, loads in trackers.machine_workloads_dict.items():
         if mid != MachineId(-1):
-            machine_total_loads.append(sum(loads))
+            total_hours = sum(loads)
+            total_days = total_hours / 24.0  # 单台设备总加工工时 小时→天
+            machine_total_loads.append(total_days)
+    # 多设备负荷方差，方差越大代表设备负荷越不均衡；仅≥2台设备才有统计意义，否则置0
     machine_unbalance = round(np.var(machine_total_loads), 2) if len(machine_total_loads) > 1 else 0.0
 
+    # ---------------------- 5. 人员负荷不均衡方差（工时转天计算） ----------------------
     worker_total_loads = []
     for wid, loads in trackers.worker_workloads_dict.items():
         if wid != WorkerId(-1):
-            worker_total_loads.append(sum(loads))
+            total_hours = sum(loads)
+            total_days = total_hours / 24.0  # 单个人员总加工工时 小时→天
+            worker_total_loads.append(total_days)
+    # 多人员负荷方差，方差越大代表人员劳逸分配越不均衡；仅≥2人时有统计意义，否则置0
     worker_unbalance = round(np.var(worker_total_loads), 2) if len(worker_total_loads) > 1 else 0.0
 
-    wip_cost = trackers.total_wip_wait_time * cfg.WIP_WEIGHT_COEFFICIENT
+    # ---------------------- 6. 在制品等待总成本 ----------------------
+    # 在制品总等待时长(天） × 单位天权重系数，换算为等待成本
+    wip_cost = trackers.total_wip_wait_time / 24.0 * cfg.WIP_WEIGHT_COEFFICIENT
 
+    # 7维适应度向量返回，所有时长类统一天口径，缓解原始量纲悬殊，适配Min-Max归一TOPSIS排序
     return [
-        overdue_count,
-        total_overdue_penalty,
-        makespan,
-        overall_equipment_idle_rate,
-        machine_unbalance,
-        worker_unbalance,
-        wip_cost
+        overdue_count,                # 指标1：逾期订单数量（越小越优）
+        total_overdue_penalty,        # 指标2：订单总逾期惩罚成本（越小越优）
+        makespan,                     # 指标3：全局总完工时间(天)（越小越优）
+        overall_equipment_idle_rate, # 指标4：设备整体闲置率(%)（越小越优）
+        machine_unbalance,           # 指标5：设备负荷不均衡方差（越小越优）
+        worker_unbalance,            # 指标6：人员负荷不均衡方差（越小越优）
+        wip_cost                     # 指标7：在制品等待总成本（越小越优）
     ]
 
 

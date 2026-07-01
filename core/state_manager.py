@@ -1,7 +1,7 @@
 from typing import Dict, List, Set, Optional
 from datetime import datetime, date, time, timedelta
 from config.settings import *
-from core.calendar import ShiftCalendar
+from core.work_calendar import ShiftCalendar
 from core.data_structs import *
 from utils.log_utils import get_logger
 
@@ -22,6 +22,7 @@ class ProductionStateManager:
         self.manual_lock_dict: Dict[int, ManualLockAssign] = {}
         self.current_system_time: datetime = datetime.min
         self.last_schedule_result: Dict[int, dict] = {}
+        self.topsis_weight: List[float] = None
 
     # ===================== 时间相关 =====================
 
@@ -79,7 +80,7 @@ class ProductionStateManager:
         weight = job_meta.base_weight
         penalty = 0.0
         if finish_time > delivery_t:
-            delta = (finish_time - delivery_t).total_seconds() / 3600.0
+            delta = (finish_time - delivery_t).total_seconds() / (3600.0 * 24.0)
             if job_meta.priority in ["urgent"]:
                 penalty = weight * DELIVERY_OVERDUE_COEFFICIENT * (delta ** 2)
             else:

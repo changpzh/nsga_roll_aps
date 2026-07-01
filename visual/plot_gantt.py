@@ -9,7 +9,7 @@ from core.state_manager import ProductionStateManager
 
 
 def plot_pareto_front(pareto_fits: List[List[float]]):
-    makespan_list = [fit[2] for fit in pareto_fits]
+    makespan_list = [fit[2] * 24 for fit in pareto_fits]
     overdue_list = [fit[1] for fit in pareto_fits]
     plt.figure(figsize=(10, 6))
     plt.scatter(makespan_list, overdue_list, c="#2E86AB", s=45, alpha=0.7, label="帕累托最优解")
@@ -306,3 +306,69 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
 
     warnings.filterwarnings("ignore", category=UserWarning)
     plt.show()
+
+
+def print_topsis_sorted_pareto_table(
+    sorted_pareto_list: List[dict],
+    sorted_fit_list: List[List[float]]
+):
+    """
+    【窄屏紧凑版】打印TOPSIS从优到劣排序帕累托解集，小终端窗口也不会横向溢出、排版对齐
+    :param sorted_pareto_list: 按名次升序排列的帕累托个体列表
+    :param sorted_fit_list: 对应排序后的适应度二维列表
+    """
+    # 极致精简表头，压缩总宽度
+    target_names = [
+        "逾期订单数",
+        "逾期惩罚成本",
+        "最大完工时间(天)",
+        "设备闲置率(%)",
+        "设备负荷不均",
+        "人员负荷不均",
+        "在制品等待时长(天)"
+    ]
+    headers = ["综合名次"] + target_names
+
+    # 窄屏专属紧凑列宽，刚好容纳数据，无多余冗余
+    col_widths = [
+        7,    # 名次
+        12,   # 逾期订单数
+        24,   # 惩罚成本（数值最长，适度加宽）
+        15,   # 最大完工时间
+        14,   # 设备闲置率
+        16,   # 设备负荷不均
+        16,   # 人员负荷不均
+        18    # 在制品等待时长
+    ]
+    total_width = sum(col_widths)
+
+    # 组装表格数据，统一保留4位小数
+    table_data = []
+    for rank, fit_vec in enumerate(sorted_fit_list, start=1):
+        row = [rank] + [round(val, 4) for val in fit_vec]
+        table_data.append(row)
+
+    print(f"\n帕累托最优解集数量：{len(sorted_pareto_list)}")
+    print("-" * total_width)
+    print(f"{'【帕累托解集｜TOPSIS从优到劣排序】':^{total_width}}")
+    print("-" * total_width)
+
+    # 表头行：居中排版
+    header_line = ""
+    for w, name in zip(col_widths, headers):
+        header_line += f"{name:^{w}}"
+    print(header_line)
+    print("-" * total_width)
+
+    # 数据行：名次居中，所有数值右对齐，小数点垂直对齐
+    for row in table_data:
+        row_line = ""
+        for col_idx, (width, cell_val) in enumerate(zip(col_widths, row)):
+            if col_idx == 0:
+                row_line += f"{cell_val:^{width}}"
+            else:
+                row_line += f"{cell_val:>{width}.4f}"
+        print(row_line)
+
+    print("-" * total_width + "\n")
+

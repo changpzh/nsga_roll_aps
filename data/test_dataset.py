@@ -6,7 +6,7 @@ import hashlib
 from config.settings import JOB_PRIORITY_WEIGHT, BASE_DATE
 from core.state_manager import ProductionStateManager
 from core.data_structs import ResourceGroup, MachineMeta, WorkerMeta, OperationMeta, JobMeta, ManualLockAssign, Shift, ShiftSegment
-from core.calendar import ShiftCalendar
+from core.work_calendar import ShiftCalendar
 
 from utils.log_utils import get_logger
 logger = get_logger(__name__)

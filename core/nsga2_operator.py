@@ -11,8 +11,10 @@ from utils.log_utils import get_logger
 # 导入base_ga里的所有公共函数
 from core.base_ga import (
     init_mixed_population, decode_chromosome, fast_non_dominated_sorting,
-    pox_crossover, mutate_chromosome,evaluate_population_fitness
+    pox_crossover, mutate_chromosome,evaluate_population_fitness,
+    ConvergenceMonitor,select_optimal_solution_by_weight
 )
+from core.multi_criteria_decision import TopsisAllMinEvaluator
 
 logger = get_logger(__name__)
 
@@ -73,6 +75,13 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
     elite_count = int(population_size * ELITE_RATE)  # 每代精英保留数量上限
     max_front_solution_num = MAX_FRONT_NUM         # 最终第一层前沿最多保留多少个均匀解
 
+    # 初始化TOPSIS实例（用于每代择优做收敛判定，复用全局精度配置）
+    topsis_conv_evaluator = TopsisAllMinEvaluator(decimal_reserve=6)
+    conv_weight = state_manager.topsis_weight
+    # 收敛监视器配置：连续10代、相对波动0.5%判定收敛
+    conv_monitor = ConvergenceMonitor(window_size=10, rel_tol=0.005)
+    converge_trigger_gen = max_generation_num
+
     # -------------------------- 2. 初始化混合种群（调用base_ga公共函数） --------------------------
     population = init_mixed_population(reorder_job_seq, state_manager)
 
@@ -82,6 +91,28 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
         fitness_list = evaluate_population_fitness(population, state_manager)
         # 3.2 快速非支配排序与前沿提取
         frontiers, _ = fast_non_dominated_sorting(fitness_list)
+
+        # 3.3 提前当代帕累托，TOPSIS择优，录入收敛监控器中
+        if frontiers and len(frontiers[0]) > 0:
+            curr_pareto_idx = frontiers[0]
+            curr_pareto_set = [population[i] for i in curr_pareto_idx]
+            # 调用择优函数获取当代最优适应度
+            _, best_fit, _, _ = select_optimal_solution_by_weight(
+                pareto_set=curr_pareto_set,
+                all_pop_fits=fitness_list,
+                pareto_index_list=curr_pareto_idx,
+                weight=conv_weight,
+                topsis_evaluator=topsis_conv_evaluator
+            )
+            conv_monitor.add_generation_best(best_fit)
+            # 收敛判断
+            if conv_monitor.is_converged():
+                converge_trigger_gen = generation + 1
+                logger.info(
+                    f"【收敛触发】连续{conv_monitor.window_size}代最优解波动小于{conv_monitor.rel_tol * 100:.2f}%")
+                logger.info(f"迭代提前终止：当前代数{generation + 1}，预设最大迭代{max_generation_num}")
+                break
+
         # 3.3 构建下一代种群（精英保留 + 交叉变异生成）
         next_population = create_next_generation(
             population=population,
