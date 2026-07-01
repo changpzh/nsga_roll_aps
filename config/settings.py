@@ -50,8 +50,9 @@ JOB_PRIORITY_URGENT = 4
 WORKER_SWITCH_COST = 2.0
 WIP_WEIGHT_COEFFICIENT = 1
 
-# ===================== NSGA-II 静态超参数 =====================
-POPULATION_SIZE = 80
+# ===================== NSGA 静态超参数 =====================
+# 运行前请确认 POPULATION_SIZE ≥ 参考点数量（divisions=3 时 7 目标为 84），并取 4 的倍数，以保证小生境保留过程的稳定性。
+POPULATION_SIZE = 88
 MAX_GENERATION = 100
 ELITE_RATE = 0.1
 MAX_FRONT_NUM = 30

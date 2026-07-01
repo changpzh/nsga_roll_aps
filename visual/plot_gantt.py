@@ -321,7 +321,7 @@ def print_topsis_sorted_pareto_table(
     target_names = [
         "逾期订单数",
         "逾期惩罚成本",
-        "最大完工时间(天)",
+        "最大完工时间(h)",
         "设备闲置率(%)",
         "设备负荷不均",
         "人员负荷不均",

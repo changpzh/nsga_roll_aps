@@ -41,8 +41,20 @@ class ProductionStateManager:
     def is_workday(self, dt: date) -> bool:
         return self.work_calendar.is_workday(dt)
 
-    # ===================== 系统时间管理 =====================
+    @property
+    def frozen_boundary(self) -> datetime:
+        """
+        计划冻结边界时间（按工作小时计算，而非自然小时）
+        保证无论是否遇到节假日，冻结区间内的有效生产时长一致
+        """
+        if self.work_calendar is None:
+            return self.current_system_time
+        return self.work_calendar.add_work_hours(
+            self.current_system_time,
+            PLAN_FROZEN_HORIZON_HOURS
+        )
 
+    # ===================== 系统时间管理 =====================
     def advance_system_time(self, hours: float):
         if hours < 0:
             raise ValueError("系统时间不能倒退")

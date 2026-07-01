@@ -4,6 +4,7 @@ from core.state_manager import ProductionStateManager
 from data.test_dataset import build_test_production_data
 from trigger.rolling_trigger import RollingScheduleTrigger
 from core.nsga2_operator import nsga2_rolling_schedule
+from core.nsga3_opertator import nsga3_rolling_schedule
 import core.base_ga as base_ga
 from visual.plot_gantt import plot_pareto_front, plot_machine_gantt, plot_worker_gantt, plot_operation_gantt, print_topsis_sorted_pareto_table
 from utils.log_utils import get_logger
@@ -35,7 +36,8 @@ if __name__ == "__main__":
     next_workday_start = sm.get_next_workday_start_time(current_datetime=ref_dt)
     sm.set_system_time(next_workday_start)
 
-    pareto_set, final_fits, pareto_idx_list = nsga2_rolling_schedule(sm, all_job_ids)
+    # pareto_set, final_fits, pareto_idx_list = nsga2_rolling_schedule(sm, all_job_ids)
+    pareto_set, final_fits, pareto_idx_list = nsga3_rolling_schedule(sm, all_job_ids, reference_divisions=3)
 
     print(f"\n帕累托最优解集数量：{len(pareto_set)}")
 

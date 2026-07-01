@@ -6,3 +6,4 @@ from .base_ga import (
     fast_non_dominated_sorting, select_optimal_solution_by_weight
 )
 from .nsga2_operator import nsga2_rolling_schedule
+from .nsga3_opertator import nsga3_rolling_schedule

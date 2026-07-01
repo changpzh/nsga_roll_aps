@@ -1,3 +1,4 @@
+# models/scheduling_state.py
 """
 排程过程核心状态数据结构
 所有解码算法共用的通用状态和结果定义
