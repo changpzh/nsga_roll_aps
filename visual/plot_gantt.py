@@ -4,9 +4,35 @@ import matplotlib.dates as mdates
 import pandas as pd
 from typing import Dict, List
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from core.state_manager import ProductionStateManager
 
+def add_nonworking_background(ax, start_dt, end_dt, state_manager: ProductionStateManager):
+    """
+    在坐标轴 ax 上标记非工作日为浅灰色背景，工作日为白色背景。
+    直接复用日历类自带的 is_workday 方法，与排程计算规则完全一致。
+    """
+    if start_dt >= end_dt:
+        return
+
+    # 取整到天
+    cur = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = end_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    delta = timedelta(days=1)
+
+    while cur < end:
+        date_obj = cur.date()
+        # 核心修改：直接调用日历类的公开方法，和排程计算用同一套判断逻辑
+        is_working = state_manager.is_workday(date_obj)
+
+        if not is_working:
+            # 非工作日：浅灰色背景
+            ax.axvspan(cur, cur + delta, facecolor='lightgray', alpha=0.25, zorder=0)
+        else:
+            # 工作日：白色背景，强制覆盖底层默认色
+            ax.axvspan(cur, cur + delta, facecolor='white', alpha=1.0, zorder=0)
+
+        cur += delta
 
 def plot_pareto_front(pareto_fits: List[List[float]]):
     makespan_list = [fit[2] * 24 for fit in pareto_fits]
@@ -94,6 +120,8 @@ def plot_machine_gantt(schedule_detail: List[dict], state_manager: ProductionSta
 
     # x轴从当前系统时间开始
     ax.set_xlim(left=current_time)
+    right_limit = df["end_time"].max()
+    add_nonworking_background(ax, current_time, right_limit, state_manager)
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
     if total_duration <= 72:
@@ -188,6 +216,8 @@ def plot_worker_gantt(schedule_detail: List[dict], state_manager: ProductionStat
     ax.set_yticklabels(y_tick_labels, fontsize=10)
 
     ax.set_xlim(left=current_time)
+    right_limit = df["end_time"].max()
+    add_nonworking_background(ax, current_time, right_limit, state_manager)
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
     if total_duration <= 72:
@@ -285,6 +315,8 @@ def plot_operation_gantt(schedule_detail: List[dict], state_manager: ProductionS
     ax.set_yticklabels(y_tick_labels, fontsize=8.5)
 
     ax.set_xlim(left=current_time)
+    right_limit = df["end_time"].max()
+    add_nonworking_background(ax, current_time, right_limit, state_manager)
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
     if total_duration <= 72:
@@ -321,11 +353,11 @@ def print_topsis_sorted_pareto_table(
     target_names = [
         "逾期订单数",
         "逾期惩罚成本",
-        "最大完工时间(h)",
+        "最大完工时间(天)",
         "设备闲置率(%)",
         "设备负荷不均",
         "人员负荷不均",
-        "在制品等待时长(天)"
+        "在制品等待总时长(天)"
     ]
     headers = ["综合名次"] + target_names
 
@@ -333,7 +365,7 @@ def print_topsis_sorted_pareto_table(
     col_widths = [
         7,    # 名次
         12,   # 逾期订单数
-        24,   # 惩罚成本（数值最长，适度加宽）
+        14,   # 惩罚成本（数值最长，适度加宽）
         15,   # 最大完工时间
         14,   # 设备闲置率
         16,   # 设备负荷不均
@@ -356,7 +388,10 @@ def print_topsis_sorted_pareto_table(
     # 表头行：居中排版
     header_line = ""
     for w, name in zip(col_widths, headers):
-        header_line += f"{name:^{w}}"
+        if name in ["逾期惩罚成本","最大完工时间(天)","设备闲置率(%)","设备闲置率(%)","人员负荷不均", "在制品等待总时长(天)"]:
+            header_line += f"{name:^{w-5}}"
+        else:
+            header_line += f"{name:^{w}}"
     print(header_line)
     print("-" * total_width)
 

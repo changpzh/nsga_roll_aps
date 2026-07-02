@@ -81,6 +81,8 @@ class ManualLockAssign:
     def from_dict(data: dict):
         lock = ManualLockAssign(
             op_global_id=data["op_global_id"],
+            business_op_id=data.get("business_op_id", ""),
+            business_op_no=data.get("business_op_no", ""),
             fixed_machine_id=data["fixed_machine_id"],
             fixed_worker_id=data["fixed_worker_id"],
             lock_machine=data["lock_machine"],
@@ -88,8 +90,9 @@ class ManualLockAssign:
             operator=data.get("operator", ""),
             lock_reason=data.get("lock_reason", "")
         )
-        if data.get("lock_timestamp"):
-            lock.lock_timestamp = datetime.fromisoformat(data["lock_timestamp"])
+        # 修复：字段名从 lock_timestamp 改为 lock_time，与类属性对齐
+        if data.get("lock_time"):
+            lock.lock_time = datetime.fromisoformat(data["lock_time"])
         if data.get("last_update_time"):
             lock.last_update_time = datetime.fromisoformat(data["last_update_time"])
         return lock

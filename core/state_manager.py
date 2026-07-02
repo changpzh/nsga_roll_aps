@@ -20,7 +20,7 @@ class ProductionStateManager:
         self.worker_meta_dict: Dict[int, WorkerMeta] = {}
         self.last_pareto_solutions: List[dict] = []
         self.manual_lock_dict: Dict[int, ManualLockAssign] = {}
-        self.current_system_time: datetime = datetime.min
+        self.current_system_time: datetime = datetime.now()
         self.last_schedule_result: Dict[int, dict] = {}
         self.topsis_weight: List[float] = None
 
@@ -55,11 +55,23 @@ class ProductionStateManager:
         )
 
     # ===================== 系统时间管理 =====================
+    def is_worker_available_on_date(self, worker_id: int, check_date: date) -> bool:
+        """
+        判断指定工人在某日期是否可排班（排除休息日）
+        :param worker_id: 工人ID
+        :param check_date: 待校验日期
+        :return: True=当日可排班，False=当日休息
+        """
+        worker_meta = self.worker_meta_dict.get(worker_id)
+        if worker_meta is None or not worker_meta.available:
+            return False
+        return check_date not in worker_meta.rest_day
+
     def advance_system_time(self, hours: float):
         if hours < 0:
             raise ValueError("系统时间不能倒退")
         self.current_system_time += timedelta(hours=hours)
-        freeze = self.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+        freeze = self.frozen_boundary
         print(f"系统时间已推进至：{self.current_system_time.isoformat()}")
         print(f"当前计划冻结区间：开工时间 < {freeze.isoformat()}")
 
@@ -67,12 +79,12 @@ class ProductionStateManager:
         if self.work_calendar and dt < self.work_calendar.base_zero:
             raise ValueError("系统时间不能早于基准零点")
         self.current_system_time = dt
+        self.work_calendar.base_date = dt.date()
         freeze = dt + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS) if self.work_calendar else dt
         print(f"系统时间已设置为：{dt.isoformat()}")
         print(f"当前计划冻结区间：开工时间 < {freeze.isoformat()}")
 
     # ===================== 工序管理 =====================
-
     def get_optimizable_operation_ids(self) -> List[int]:
         return [op_idx for op_idx, status in self.operation_status_dict.items() if status == OP_STATUS_OPTIMIZABLE]
 
@@ -203,6 +215,10 @@ class ProductionStateManager:
             weekly_shifts=weekly_shifts,
             special_shifts=special_shifts
         )
+        # 若复用已有日历对象，修改后清空缓存
+        if hasattr(self, "work_calendar") and self.work_calendar is not None:
+            self.work_calendar.clear_cache()
+
         if self.current_system_time == datetime.min:
             self.current_system_time = self.work_calendar.base_zero
         return self.work_calendar

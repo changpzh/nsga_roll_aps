@@ -396,12 +396,11 @@ def nsga3_rolling_schedule(
     max_generation_count = MAX_GENERATION
     max_pareto_keep_count = MAX_FRONT_NUM
 
-    # 动态获取目标维度（从配置或初代种群推断，避免硬编码）
-    # 先生成初代种群，获取第一个适应度向量的维度
-    temp_population = init_mixed_population(reorder_job_sequence, state_manager)
-    temp_fit, _ = decode_chromosome(temp_population[0], state_manager)
-    objective_dimension = len(temp_fit)
-    del temp_population, temp_fit
+    # -------------------------- 2. 初始化混合种群 + 动态获取目标维度 --------------------------
+    current_population = init_mixed_population(reorder_job_sequence, state_manager)
+    current_fitness = evaluate_population_fitness(current_population, state_manager)
+    # 直接从初代适应度推断目标维度，省去临时种群开销
+    objective_dimension = len(current_fitness[0])
 
     # 生成参考点：均匀基础点 + 边界点
     uniform_ref_points = generate_das_dennis_points(objective_dimension, reference_divisions)
@@ -431,10 +430,6 @@ def nsga3_rolling_schedule(
     convergence_weight = state_manager.topsis_weight
     convergence_monitor = ConvergenceMonitor(window_size=10, rel_tol=0.005)
     convergence_trigger_generation = max_generation_count
-
-    # -------------------------- 2. 初始化混合种群（复用滚动排程种子） --------------------------
-    current_population = init_mixed_population(reorder_job_sequence, state_manager)
-    current_fitness = evaluate_population_fitness(current_population, state_manager)
 
     # -------------------------- 3. NSGA-III 主迭代循环 --------------------------
     for generation in range(max_generation_count):

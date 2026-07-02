@@ -5,7 +5,7 @@ from typing import List, Dict, Tuple, Any
 from core.state_manager import ProductionStateManager
 import config.settings as cfg
 from config.settings import (
-    POPULATION_SIZE, MAX_GENERATION, ELITE_RATE, MAX_FRONT_NUM, CROSSOVER_RATE
+    POPULATION_SIZE, MAX_GENERATION, MAX_FRONT_NUM, CROSSOVER_RATE
 )
 from utils.log_utils import get_logger
 # 导入base_ga里的所有公共函数
@@ -72,7 +72,7 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
     # -------------------------- 1. 读取全局算法超参 --------------------------
     population_size = POPULATION_SIZE        # 种群总规模
     max_generation_num = MAX_GENERATION          # 最大迭代代数
-    elite_count = int(population_size * ELITE_RATE)  # 每代精英保留数量上限
+    # elite_count = int(population_size * ELITE_RATE)  # 每代精英保留数量上限
     max_front_solution_num = MAX_FRONT_NUM         # 最终第一层前沿最多保留多少个均匀解
 
     # 初始化TOPSIS实例（用于每代择优做收敛判定，复用全局精度配置）
@@ -117,8 +117,6 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
         next_population = create_next_generation(
             population=population,
             fitness_list=fitness_list,
-            frontiers=frontiers,
-            elite_count=elite_count,
             population_size=population_size,
             state_manager=state_manager
         )
@@ -151,55 +149,64 @@ def nsga2_rolling_schedule(state_manager: ProductionStateManager, reorder_job_se
 def create_next_generation(
     population: List[Dict[str, Any]],
     fitness_list: List[List[float]],
-    frontiers: List[List[int]],
-    elite_count: int,
     population_size: int,
     state_manager: ProductionStateManager
 ) -> List[Dict[str, Any]]:
     """
-    根据精英保留策略和交叉变异生成新一代种群。
-    步骤：
-    1. 按前沿顺序将个体加入新种群，直到达到 elite_count（精英保留）。
-    2. 通过锦标赛选择父代，进行交叉和变异，填充剩余个体。
+    标准NSGA-II下一代生成：父子种群合并 → 全量非支配排序 → 逐层筛选填满种群
+    替换原“少量精英+大量子代”的非标准实现，大幅提升收敛性与解质量
     """
-    next_pop = []
-
-    # ---------- 1.精英保留 ----------
-    for front_ids in frontiers:
-        # 如果加入整个前沿后仍不超过 elite_count，则全部保留
-        if len(next_pop) + len(front_ids) <= elite_count:
-            next_pop.extend([population[i] for i in front_ids])
-        else:
-            # 否则按拥挤度降序选择精英个体
-            crowd_dist = calculate_crowding_distance(fitness_list, front_ids)
-            sorted_front = sorted(
-                zip(front_ids, crowd_dist),
-                key=lambda x: -x[1]          # 拥挤度降序
-            )
-            need_num = elite_count - len(next_pop)
-            selected_ids = [idx for idx, _ in sorted_front[:need_num]]
-            next_pop.extend([population[id] for id in selected_ids])
-            break   # 精英已填满
-
-    # ----------2.交叉/变异填充剩余个体 ----------
-    while len(next_pop) < population_size:
-        # 锦标赛选择两个父代
+    # 1. 生成等量子代种群
+    offspring = []
+    while len(offspring) < population_size:
         parent1 = tournament_selection(population, fitness_list, state_manager)
         parent2 = tournament_selection(population, fitness_list, state_manager)
 
-        # 交叉（依据概率）
         if np.random.random() < CROSSOVER_RATE:
             child1, child2 = pox_crossover(parent1, parent2, state_manager)
         else:
-            child1, child2 = copy.deepcopy(parent1), copy.deepcopy(parent2)
+            child1 = copy.deepcopy(parent1)
+            child2 = copy.deepcopy(parent2)
 
-        # 变异
         child1 = mutate_chromosome(child1, state_manager)
         child2 = mutate_chromosome(child2, state_manager)
 
-        # 加入子代，保持种群大小
-        next_pop.append(child1)
-        if len(next_pop) < population_size:
-            next_pop.append(child2)
+        offspring.append(child1)
+        if len(offspring) < population_size:
+            offspring.append(child2)
+
+    # 2. 评估子代适应度
+    offspring_fitness = evaluate_population_fitness(offspring, state_manager)
+
+    # 3. 父子种群合并
+    combined_pop = population + offspring
+    combined_fits = fitness_list + offspring_fitness
+
+    # 4. 全量非支配排序
+    fronts, _ = fast_non_dominated_sorting(combined_fits)
+
+    # 5. 逐层加入下一代种群
+    next_pop = []
+    last_front_level = -1
+
+    for level, front in enumerate(fronts):
+        if len(next_pop) + len(front) <= population_size:
+            next_pop.extend([combined_pop[idx] for idx in front])
+        else:
+            last_front_level = level
+            break
+    else:
+        return next_pop
+
+    # 6. 最后一层按拥挤距离降序筛选，填满种群
+    last_front = fronts[last_front_level]
+    need_num = population_size - len(next_pop)
+    crowd_dist = calculate_crowding_distance(combined_fits, last_front)
+    sorted_front = sorted(
+        zip(last_front, crowd_dist),
+        key=lambda x: -x[1]
+    )
+    selected_idx = [idx for idx, _ in sorted_front[:need_num]]
+    next_pop.extend([combined_pop[idx] for idx in selected_idx])
 
     return next_pop

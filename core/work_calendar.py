@@ -23,6 +23,15 @@ class ShiftCalendar:
         self._special = special_shifts or {}
         self._base_zero = self._calc_base_zero()
 
+    @property
+    def special_shifts(self) -> Dict[date, List[Shift]]:
+        return self._special
+
+    def clear_cache(self) -> None:
+        """清空所有日期区间缓存，班次配置变更后必须调用"""
+        self._day_intervals.cache_clear()
+        logger.info("班次日历缓存已清空")
+
     def _get_shifts(self, dt: date) -> List[Shift]:
         if dt in self._special:
             return self._special[dt]

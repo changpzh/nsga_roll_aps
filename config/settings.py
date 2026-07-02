@@ -51,8 +51,8 @@ WORKER_SWITCH_COST = 2.0
 WIP_WEIGHT_COEFFICIENT = 1
 
 # ===================== NSGA 静态超参数 =====================
-# 运行前请确认 POPULATION_SIZE ≥ 参考点数量（divisions=3 时 7 目标为 84），并取 4 的倍数，以保证小生境保留过程的稳定性。
-POPULATION_SIZE = 88
+# 运行前请确认 POPULATION_SIZE ≥ 参考点数量（divisions=3 时 7 目标为 91），并取 4 的倍数，以保证小生境保留过程的稳定性。
+POPULATION_SIZE = 80
 MAX_GENERATION = 100
 ELITE_RATE = 0.1
 MAX_FRONT_NUM = 30
@@ -66,8 +66,6 @@ ROLLING_PERTURB_RATE = 0.15
 
 # ===================== 惩罚系数 =====================
 OVERLOAD_PENALTY_COEFFICIENT = 0.8
-WARN_OVERDUE_COEFFICIENT = 0.12
-CONTRACT_OVERDUE_COEFFICIENT = 0.25
 DELIVERY_OVERDUE_COEFFICIENT = 0.025
 PLAN_FROZEN_HORIZON_HOURS = 8.0 # 表示两天
 
@@ -104,9 +102,6 @@ SHIFT_CONFIG_FILE = PROJECT_ROOT / "config" / "shift_config.json"
 
 # 数据库表名（当 SHIFT_DATA_SOURCE = 'database' 时生效）
 SHIFT_CONFIG_TABLE = "shift_config"
-
-# 基准日期（项目投产首日，启动时固定，滚动排程中不可更改）
-BASE_DATE = date(2026, 6, 22)  # 根据实际投产日期修改
 
 # 每日班次切换时间点
 DAY_SHIFT_THRESHOLD = 8.0

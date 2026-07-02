@@ -31,6 +31,7 @@ class SchedulingTrackers:
     # ============================== 工件状态 ==============================
     job_last_operation_end_time_dict: Dict[JobId, datetime] = field(default_factory=dict)
     job_op_finish_time_dict: Dict[OperationId, datetime] = field(default_factory=dict)
+    job_op_start_time_dict: Dict[OperationId, datetime] = field(default_factory=dict)
 
     # ============================== 全局累计指标 ==============================
     total_changeover_time: float = 0.0

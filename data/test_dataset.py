@@ -1,9 +1,10 @@
 from datetime import datetime, date, time, timedelta
+from typing import Set
 import json
 import os
 import hashlib
 
-from config.settings import JOB_PRIORITY_WEIGHT, BASE_DATE
+from config.settings import JOB_PRIORITY_WEIGHT
 from core.state_manager import ProductionStateManager
 from core.data_structs import ResourceGroup, MachineMeta, WorkerMeta, OperationMeta, JobMeta, ManualLockAssign, Shift, ShiftSegment
 from core.work_calendar import ShiftCalendar
@@ -36,10 +37,24 @@ def _get_day_end_datetime(state_manager: ProductionStateManager, target_date: da
     return end_dt
 
 
-def _generate_stable_op_id(job_id: str, business_op_id: str) -> int:
+def _generate_stable_op_id(job_id: str, business_op_id: str, used_ids: Set[int] = None) -> int:
+    """
+    生成稳定工序ID，带冲突检测
+    :param used_ids: 已使用的ID集合，用于冲突校验
+    """
     unique_str = f"{job_id}:{business_op_id}"
     hash_bytes = hashlib.sha256(unique_str.encode()).digest()[:8]
-    return int.from_bytes(hash_bytes, 'big')
+    op_id = int.from_bytes(hash_bytes, 'big')
+
+    # 冲突检测：若已存在，向后偏移直到找到空位
+    if used_ids is not None:
+        offset = 1
+        while op_id in used_ids:
+            op_id = int.from_bytes(hash_bytes, 'big') + offset
+            offset += 1
+        used_ids.add(op_id)
+
+    return op_id
 
 
 def build_test_production_data(state_manager: ProductionStateManager, json_path: str):
@@ -47,7 +62,7 @@ def build_test_production_data(state_manager: ProductionStateManager, json_path:
     data = load_production_json(json_path)
 
     # ========== 1. 工作日历 ==========
-    base_date = datetime.strptime(data.get("base_date", str(BASE_DATE)), "%Y-%m-%d").date()
+    base_date = sm.current_system_time.date() if sm.current_system_time else date.today()
 
     weekly_shifts = {}
     for wd_str, shift_list in data.get("weekly_shifts", {}).items():

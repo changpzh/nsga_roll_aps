@@ -20,21 +20,32 @@ if __name__ == "__main__":
     random.seed(SEED)
     np.random.seed(SEED)
     sm = ProductionStateManager()
+
+    # 1. 先加载所有生产数据，内部会初始化 work_calendar
+    all_job_op_map = build_test_production_data(sm, "test_data3.json")
+    all_job_ids = list(all_job_op_map.keys())
+
+    # 2. 数据加载完成后，再调用日历相关方法
+    ref_dt = datetime.now()
+    # ref_dt = datetime(2026, 7, 1, 10, 0)
+    next_workday_start = sm.get_next_workday_start_time(current_datetime=ref_dt)
+    sm.set_system_time(next_workday_start)
+
     current_weight = [0.45, 0.10, 0.20, 0.10, 0.05, 0.05, 0.05]
     sm.topsis_weight = current_weight
     topsis_evaluator = TopsisAllMinEvaluator(decimal_reserve=6)
-    all_job_op_map = build_test_production_data(sm, "test_data3.json")
-    all_job_ids = list(all_job_op_map.keys())
+
     trigger = RollingScheduleTrigger(sm)
 
+
+
+
+
     print("\n" + "=" * 70)
-    print("【第一次全量调度】系统初始时间：基准零点")
+    print(f"【第一次全量调度】系统初始时间：{next_workday_start}")
     print("=" * 70)
 
-    ref_dt = datetime(2026, 7, 1, 10, 0)
-    # ref_dt = datetime.now()
-    next_workday_start = sm.get_next_workday_start_time(current_datetime=ref_dt)
-    sm.set_system_time(next_workday_start)
+
 
     # pareto_set, final_fits, pareto_idx_list = nsga2_rolling_schedule(sm, all_job_ids)
     pareto_set, final_fits, pareto_idx_list = nsga3_rolling_schedule(sm, all_job_ids, reference_divisions=3)
@@ -88,7 +99,7 @@ if __name__ == "__main__":
     print("当前系统时间:", sm.current_system_time.isoformat())
 
     print("\n正在生成初始调度图表...")
-    plot_pareto_front([final_fits[i] for i in pareto_idx_list])
+    # plot_pareto_front([final_fits[i] for i in pareto_idx_list])
     plot_machine_gantt(best_schedule_detail, sm)
     plot_worker_gantt(best_schedule_detail, sm)
     plot_operation_gantt(best_schedule_detail, sm)

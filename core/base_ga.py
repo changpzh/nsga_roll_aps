@@ -2,7 +2,7 @@ import numpy as np
 import heapq
 import copy
 from typing import List, Dict, Tuple, Any,Deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,date,time
 from collections import deque
 from models.base_types import MachineId, WorkerId, OperationId, JobId
 from models.scheduling_state import SchedulingTrackers, OperationSchedulingResult
@@ -56,6 +56,18 @@ class ConvergenceMonitor:
     def get_history(self) -> List[List[float]]:
         return self.full_history
 
+def is_worker_available_on_date(self, worker_id: int, check_date: date) -> bool:
+    """
+    判断指定工人在某日期是否休息
+    :param worker_id: 工人ID
+    :param check_date: 待校验日期
+    :return: True=可排班，False=当日休息
+    """
+    worker = self.worker_meta_dict.get(worker_id)
+    if worker is None or not worker.available:
+        return False
+    return check_date not in worker.rest_day
+
 def init_single_chromosome(reorder_job_seq: List[int], state_manager: ProductionStateManager, shuffle_free: bool = True) -> dict:
     target_ops = []
     all_optimizable_ops_set = set(state_manager.get_optimizable_operation_ids())
@@ -66,7 +78,7 @@ def init_single_chromosome(reorder_job_seq: List[int], state_manager: Production
         valid_ops.sort(key=lambda x: int(state_manager.op_meta_dict[x].business_op_no))
         target_ops.extend(valid_ops)
 
-    frozen_boundary = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    frozen_boundary = state_manager.frozen_boundary
     frozen_ops = []
     unfrozen_old_ops = []
     new_ops = []
@@ -169,7 +181,7 @@ def perturb_historical_chromosome(trimmed_chrom: dict, state_manager: Production
     assign = chrom["resource_assign"]
     total_op_len = len(op_seq)
 
-    freeze_boundary = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    freeze_boundary = state_manager.frozen_boundary
     last_schedule = state_manager.last_schedule_result
 
     perturb_num = max(1, int(total_op_len * ROLLING_PERTURB_RATE))
@@ -212,7 +224,7 @@ def trim_historical_chromosome(old_chrom: dict, state_manager: ProductionStateMa
     op_to_pos = {op: idx for idx, op in enumerate(old_seq)}
     processed_ops = set()
 
-    freeze_boundary = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    freeze_boundary = state_manager.frozen_boundary
     last_schedule = state_manager.last_schedule_result
 
     for op in old_seq:
@@ -349,7 +361,7 @@ def pox_crossover(p1: dict, p2: dict, state_manager: ProductionStateManager) -> 
     seq1, assign1 = p1["op_sequence"], p1["resource_assign"]
     seq2, assign2 = p2["op_sequence"], p2["resource_assign"]
 
-    frozen_boundary = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    frozen_boundary = state_manager.frozen_boundary
     frozen_ops = _get_frozen_operations(seq1, state_manager, frozen_boundary)
 
     if len(frozen_ops) == len(seq1):
@@ -402,7 +414,7 @@ def mutate_chromosome(chrom: dict, state_manager: ProductionStateManager) -> dic
     new_chrom = copy.deepcopy(chrom)
     op_seq = new_chrom["op_sequence"]
     resource_assign = new_chrom["resource_assign"]
-    frozen_boundary = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    frozen_boundary = state_manager.frozen_boundary
     for idx, raw_op_id in enumerate(op_seq):
         op_id = int(raw_op_id)
         if is_operation_frozen(op_id, frozen_boundary, state_manager):
@@ -635,10 +647,31 @@ def _schedule_single_operation(
             ideal_start_time = max(ideal_start_time, changeover_end)
         trackers.machine_previous_technology_type_dict[machine_id] = technology_type
 
+
     # --------------------------
     # 5. 班次日历约束（第一个子批开始时间）
     # --------------------------
     first_batch_start = state_manager.get_valid_start_time(ideal_start_time)
+
+    # --------------------------
+    # 5.5 工人休息日约束
+    # --------------------------
+    if worker_id != WorkerId(-1) and rg.worker_id_list:
+        # 循环修正：如果理想开工日工人休息，顺延到下一个工作日
+        check_date = first_batch_start.date()
+        max_skip_days = 30  # 防死循环
+        skip_days = 0
+        while not state_manager.is_worker_available_on_date(int(worker_id),
+                                                            check_date) and skip_days < max_skip_days:
+            check_date += timedelta(days=1)
+            skip_days += 1
+        if skip_days > 0:
+            # 跳转到下一个工作日的白班开始时间
+            first_batch_start = state_manager.work_calendar.next_work_start(
+                datetime.combine(check_date, time(0, 0))
+            )
+    # 工序开工时间落库到跟踪器
+    trackers.job_op_start_time_dict[OperationId(operation_id)] = first_batch_start
 
     # --------------------------
     # 6. 计算拆分批次
@@ -651,7 +684,7 @@ def _schedule_single_operation(
     # --------------------------
     # 7. 逐批次计算时间
     # --------------------------
-    frozen_time_limit = state_manager.current_system_time + timedelta(hours=PLAN_FROZEN_HORIZON_HOURS)
+    frozen_time_limit = state_manager.frozen_boundary
     results = []
     current_start = first_batch_start
 
@@ -769,9 +802,12 @@ def _compute_fitness_vector(trackers: SchedulingTrackers, state_manager: Any, co
 
     # ---------------------- 2. 计算总完工时间Makespan（单位：天） ----------------------
     if trackers.job_last_operation_end_time_dict:
-        max_end = max(trackers.job_last_operation_end_time_dict.values())
-        # 总秒数 ÷3600→小时，再÷24转为自然天
-        makespan = (max_end - state_manager.work_calendar.base_zero).total_seconds() / (3600.0 * 24.0)
+        # 取所有工序的实际最早开工时间做起点
+        actual_first_start = min(trackers.job_op_start_time_dict.values())  # 所有工序中最早的开工时间
+        actual_last_end = max(trackers.job_last_operation_end_time_dict.values())  # 最晚完工时间
+
+        # 用工作日历计算有效工作时长，排除节假日、非班次时间
+        makespan = state_manager.work_hours_between(actual_first_start, actual_last_end) / 24.0
     else:
         makespan = 0.0
 
